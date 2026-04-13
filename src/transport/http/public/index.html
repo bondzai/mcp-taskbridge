@@ -1,97 +1,64 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-bs-theme="dark">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>MCP Taskbridge</title>
-    <style>
-      :root { color-scheme: light dark; }
-      body { font-family: -apple-system, system-ui, sans-serif; max-width: 760px; margin: 2rem auto; padding: 0 1rem; }
-      h1 { margin-bottom: 0.25rem; }
-      form { display: flex; gap: 0.5rem; margin: 1rem 0; }
-      textarea { flex: 1; min-height: 70px; font: inherit; padding: 0.5rem; }
-      button { padding: 0 1rem; font: inherit; cursor: pointer; }
-      .task { border: 1px solid #8884; border-radius: 6px; padding: 0.75rem; margin: 0.5rem 0; }
-      .task header { display: flex; justify-content: space-between; gap: 0.5rem; align-items: center; }
-      .status { font-size: 0.8rem; padding: 0.1rem 0.5rem; border-radius: 999px; background: #8884; }
-      .status.pending { background: #fcd34d55; }
-      .status.in_progress { background: #60a5fa55; }
-      .status.done { background: #34d39955; }
-      .status.failed { background: #f8717155; }
-      pre { white-space: pre-wrap; word-break: break-word; margin: 0.5rem 0 0; font-size: 0.85rem; }
-      .muted { color: #888; font-size: 0.8rem; }
-      .agent { font-size: 0.75rem; color: #888; margin-left: 0.5rem; }
-    </style>
+    <title>MCP Taskbridge — Tasks</title>
+    <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet" />
+    <link href="/assets/app.css" rel="stylesheet" />
   </head>
   <body>
-    <h1>MCP Taskbridge</h1>
-    <p class="muted">Submit a task, then let any MCP client (Claude Desktop, Claude Cowork, ...) handle it.</p>
+    <div id="tb-chrome"></div>
 
-    <form id="f">
-      <textarea id="prompt" placeholder="e.g. research current NVDA stock price from 3 sources and summarize"></textarea>
-      <button type="submit">Submit</button>
-    </form>
-
-    <div id="list"></div>
-
-    <script>
-      const $list = document.getElementById("list");
-      const tasks = new Map();
-      const escape = (s) => String(s ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
-
-      const render = () => {
-        const ordered = [...tasks.values()].sort((a, b) => b.createdAt - a.createdAt);
-        $list.innerHTML = ordered.map((t) => `
-          <div class="task">
-            <header>
-              <strong>${t.id.slice(0, 8)}</strong>
-              <span>
-                <span class="status ${t.status || "pending"}">${t.status}</span>
-                ${t.agentId ? `<span class="agent">${escape(t.agentId)}</span>` : ""}
-              </span>
-            </header>
-            <pre>${escape(t.prompt)}</pre>
-            ${t.progress ? `<pre class="muted">progress: ${escape(t.progress)}</pre>` : ""}
-            ${t.result ? `<pre>result: ${escape(t.result)}</pre>` : ""}
-            ${t.error ? `<pre>error: ${escape(t.error)}</pre>` : ""}
+    <main class="tb-main">
+      <div class="container">
+        <header class="tb-page-header">
+          <div>
+            <h1><i class="bi bi-list-task me-2"></i>Tasks</h1>
+            <p>Submit a task, then let any MCP client (Claude Desktop, Claude Cowork, Claude Code, …) handle it.</p>
           </div>
-        `).join("");
-      };
+        </header>
 
-      const upsert = (t) => {
-        if (!t || !t.id) return;
-        tasks.set(t.id, t);
-        render();
-      };
+        <section class="tb-submit-card">
+          <form id="tb-form">
+            <label for="tb-prompt" class="tb-section-label">New task</label>
+            <textarea
+              id="tb-prompt"
+              class="form-control mb-2"
+              rows="3"
+              placeholder="e.g. research current NVDA stock price from 3 sources and summarize"
+              required></textarea>
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+              <span class="text-body-secondary small">
+                <i class="bi bi-info-circle me-1"></i>
+                Enter to newline, click Submit to queue.
+              </span>
+              <button type="submit" class="btn btn-primary">
+                <i class="bi bi-send me-1"></i>Submit
+              </button>
+            </div>
+          </form>
+        </section>
 
-      const load = async () => {
-        const res = await fetch("/api/tasks");
-        const body = await res.json();
-        for (const t of body.tasks) tasks.set(t.id, t);
-        render();
-      };
+        <section id="tb-toolbar" class="tb-toolbar" aria-label="Task filters"></section>
 
-      document.getElementById("f").addEventListener("submit", async (e) => {
-        e.preventDefault();
-        const prompt = document.getElementById("prompt").value.trim();
-        if (!prompt) return;
-        const res = await fetch("/api/tasks", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ prompt }),
-        });
-        if (res.ok) {
-          document.getElementById("prompt").value = "";
-          upsert(await res.json());
-        }
-      });
+        <section id="tb-list" aria-live="polite"></section>
 
-      const es = new EventSource("/api/events");
-      ["task.created", "task.claimed", "task.progress", "task.completed", "task.failed"].forEach((ev) => {
-        es.addEventListener(ev, (e) => upsert(JSON.parse(e.data)));
-      });
+        <nav id="tb-pagination" class="tb-pagination" aria-label="Pagination"></nav>
+      </div>
+    </main>
 
-      load();
-    </script>
+    <footer class="tb-footer">
+      <div class="container">
+        mcp-taskbridge · <a href="https://modelcontextprotocol.io" target="_blank" rel="noreferrer" class="link-secondary">Model Context Protocol</a>
+      </div>
+    </footer>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.0/dist/purify.min.js"></script>
+    <script type="module" src="/assets/tasks.js"></script>
   </body>
 </html>

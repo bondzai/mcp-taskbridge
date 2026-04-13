@@ -71,3 +71,12 @@ The tool schemas are pure MCP — no client-specific assumptions — so unknown 
 ## How it works
 
 You submit a prompt in the browser; the web server stores it as a `pending` row in SQLite. An MCP client calls `list_pending_tasks`, `claim_task`, does the work using its own tools, and calls `submit_result`. The MCP process HMAC-signs a webhook to the web server, which verifies the signature and pushes the update to the browser over SSE. The card flips from `pending` → `in_progress` → `done` in real time.
+
+## Documentation
+
+- **[docs/setup.md](docs/setup.md)** — install, configure, register with an MCP client
+- **[docs/architecture.md](docs/architecture.md)** — process topology, module layout, event bus, data model, trade-offs
+- **[docs/mcp-tools.md](docs/mcp-tools.md)** — reference for all 6 MCP tools + error codes
+- **[docs/api.md](docs/api.md)** — REST + SSE + webhook contracts, signature scheme
+- **[docs/e2e-test.md](docs/e2e-test.md)** — two-path end-to-end test walkthrough (HTTP-only + real MCP client)
+- **[docs/cowork.md](docs/cowork.md)** — using taskbridge with Claude Cowork (stdio→HTTP bridge + public tunnel + security)

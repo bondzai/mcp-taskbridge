@@ -1,3 +1,5 @@
+import fs from "node:fs/promises";
+import path from "node:path";
 import express from "express";
 import { ConflictError, NotFoundError, ValidationError } from "../../core/service.js";
 import { SIGNATURE_HEADER, verifySignature } from "../../webhook/signer.js";
@@ -16,8 +18,36 @@ const sendError = (res, err) => {
   res.status(status).json({ error: err.message, code: err.code ?? "INTERNAL" });
 };
 
-export const createRoutes = ({ service, sse, webhookSecret }) => {
+export const createRoutes = ({
+  service,
+  sse,
+  webhookSecret,
+  publicConfig = {},
+  projectRoot = null,
+}) => {
   const router = express.Router();
+
+  router.get("/api/config", (req, res) => {
+    res.json({
+      agentId: publicConfig.agentId ?? null,
+      webhookUrl: publicConfig.webhookUrl ?? null,
+      webHost: publicConfig.webHost ?? null,
+      webPort: publicConfig.webPort ?? null,
+      version: publicConfig.version ?? null,
+    });
+  });
+
+  router.get("/api/changelog", async (req, res) => {
+    if (!projectRoot) {
+      return res.status(404).type("text/plain").send("# Changelog\n\nNot configured on this server.\n");
+    }
+    try {
+      const md = await fs.readFile(path.join(projectRoot, "CHANGELOG.md"), "utf8");
+      res.type("text/markdown; charset=utf-8").send(md);
+    } catch {
+      res.status(404).type("text/plain").send("# Changelog\n\nCHANGELOG.md not found.\n");
+    }
+  });
 
   router.post("/api/tasks", express.json({ limit: JSON_LIMIT }), async (req, res) => {
     try {
