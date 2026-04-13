@@ -25,10 +25,22 @@ const state = {
   pageSize: 10,
   page: 1,
   expanded: new Set(),
-  mode: new Map(),       // taskId → "rendered" | "raw"
-  editing: new Set(),    // taskId → currently in edit mode
-  drafts: new Map(),     // taskId → in-progress edit text
+  mode: new Map(),         // taskId → "rendered" | "raw"
+  editing: new Set(),      // taskId → currently in edit mode
+  drafts: new Map(),       // taskId → in-progress edit text
   showArchived: false,
+  // Animation state — populated by SSE handlers, consumed by renderItem,
+  // cleared by setTimeout so a re-render after the animation window
+  // doesn't keep replaying it.
+  justCreated: new Set(),  // task ids slid in within the last 2s
+  justDone: new Set(),     // task ids that flashed green within the last 2s
+  justFailed: new Set(),   // task ids that flashed red within the last 2s
+};
+
+const ANIM_WINDOW_MS = 2000;
+const markAnim = (set, id) => {
+  set.add(id);
+  setTimeout(() => { set.delete(id); }, ANIM_WINDOW_MS);
 };
 
 const modeFor = (id) => state.mode.get(id) || "rendered";
@@ -160,11 +172,27 @@ const renderItem = (t) => {
   const mode = modeFor(t.id);
   const isArchived = t.archivedAt != null;
   const isEditing = state.editing.has(t.id);
+  const isRunning = t.status === "in_progress";
   const canEdit = t.status === "pending" && !isArchived;
-  const pill = `<span class="tb-pill tb-pill-${t.status}"><i class="bi ${statusIcon(t.status)}"></i>${t.status.replace("_", " ")}</span>`;
+
+  const dots = isRunning
+    ? `<span class="tb-working-dots" aria-hidden="true"><span></span><span></span><span></span></span>`
+    : "";
+  const pill = `<span class="tb-pill tb-pill-${t.status}"><i class="bi ${statusIcon(t.status)}"></i>${t.status.replace("_", " ")}${dots}</span>`;
   const archivedPill = isArchived ? `<span class="tb-pill tb-pill-archived"><i class="bi bi-archive"></i>archived</span>` : "";
   const agent = t.agentId ? `<span class="tb-agent-badge"><i class="bi bi-robot"></i>${escape(t.agentId)}</span>` : "";
+  const liveTimer = isRunning && t.claimedAt
+    ? `<span class="tb-elapsed-live" data-since="${t.claimedAt}" title="Live elapsed since claim"><i class="bi bi-stopwatch"></i><span class="tb-elapsed-text">${escape(formatDuration(Date.now() - t.claimedAt))}</span></span>`
+    : "";
   const when = `<span class="tb-meta-time" title="${escape(absoluteTime(t.updatedAt || t.createdAt))}">${escape(relativeTime(t.updatedAt || t.createdAt))}</span>`;
+
+  // Animation classes (cleared automatically after ANIM_WINDOW_MS).
+  const animClasses = [
+    isRunning ? "tb-task-running" : "",
+    state.justCreated.has(t.id) ? "tb-task-just-created" : "",
+    state.justDone.has(t.id) ? "tb-task-just-done" : "",
+    state.justFailed.has(t.id) ? "tb-task-just-failed" : "",
+  ].filter(Boolean).join(" ");
 
   const seg = `
     <div class="tb-seg" role="tablist" aria-label="View mode">
@@ -222,7 +250,7 @@ const renderItem = (t) => {
     : contentBlock("Prompt", t.prompt, mode);
 
   return `
-    <div class="accordion-item ${isArchived ? "tb-task-archived" : ""}" data-id="${escape(t.id)}">
+    <div class="accordion-item ${isArchived ? "tb-task-archived" : ""} ${animClasses}" data-id="${escape(t.id)}">
       <h2 class="accordion-header">
         <button class="accordion-button ${expanded ? "" : "collapsed"}" type="button"
                 data-bs-toggle="collapse" data-bs-target="#${id}" aria-expanded="${expanded}">
@@ -231,7 +259,7 @@ const renderItem = (t) => {
             ${archivedPill}
             <span class="tb-task-id">#${shortId(t.id)}</span>
             <span class="tb-task-prompt">${escape(t.prompt)}</span>
-            <span class="tb-task-meta">${agent}${when}</span>
+            <span class="tb-task-meta">${liveTimer}${agent}${when}</span>
           </div>
         </button>
       </h2>
@@ -465,11 +493,10 @@ const renderList = () => {
             toast(err.error || "delete failed");
             return;
           }
-          tasks.delete(id);
-          state.editing.delete(id);
-          state.drafts.delete(id);
-          state.expanded.delete(id);
-          render();
+          // task.deleted SSE event will fire animateRemove for every
+          // browser tab; this local call just makes the originating tab
+          // start the fade immediately rather than waiting for the round-trip.
+          animateRemove(id);
           toast("Task deleted");
         } catch (err) {
           toast("Network error");
@@ -553,37 +580,97 @@ const setupForm = () => {
 
 const setupEvents = () => {
   const es = new EventSource("/api/events");
-  const upsertEvents = [
-    "task.created", "task.claimed", "task.progress",
-    "task.completed", "task.failed", "task.updated", "task.unarchived",
-  ];
-  for (const ev of upsertEvents) {
+
+  // Plain upsert events — re-render the list, no animation flag.
+  for (const ev of ["task.claimed", "task.progress", "task.updated", "task.unarchived"]) {
     es.addEventListener(ev, (e) => {
       try { upsert(JSON.parse(e.data)); } catch {}
     });
   }
+
+  // Created → slide-in animation.
+  es.addEventListener("task.created", (e) => {
+    try {
+      const t = JSON.parse(e.data);
+      markAnim(state.justCreated, t.id);
+      upsert(t);
+    } catch {}
+  });
+
+  // Completed → green flash.
+  es.addEventListener("task.completed", (e) => {
+    try {
+      const t = JSON.parse(e.data);
+      markAnim(state.justDone, t.id);
+      upsert(t);
+    } catch {}
+  });
+
+  // Failed → red flash.
+  es.addEventListener("task.failed", (e) => {
+    try {
+      const t = JSON.parse(e.data);
+      markAnim(state.justFailed, t.id);
+      upsert(t);
+    } catch {}
+  });
+
   es.addEventListener("task.archived", (e) => {
     try {
       const t = JSON.parse(e.data);
       if (state.showArchived) {
         upsert(t);
       } else {
-        tasks.delete(t.id);
-        render();
+        animateRemove(t.id);
       }
     } catch {}
   });
+
   es.addEventListener("task.deleted", (e) => {
     try {
       const t = JSON.parse(e.data);
-      tasks.delete(t.id);
-      state.editing.delete(t.id);
-      state.drafts.delete(t.id);
-      state.expanded.delete(t.id);
-      render();
+      animateRemove(t.id);
     } catch {}
   });
 };
+
+/**
+ * Fade a task card out before removing it from the model. Falls back
+ * to an instant remove if the DOM node isn't found (e.g. it was paged
+ * out, or the user is filtering it away anyway).
+ */
+const animateRemove = (id) => {
+  const node = document.querySelector(`.accordion-item[data-id="${CSS.escape(id)}"]`);
+  const finalise = () => {
+    tasks.delete(id);
+    state.editing.delete(id);
+    state.drafts.delete(id);
+    state.expanded.delete(id);
+    state.justCreated.delete(id);
+    state.justDone.delete(id);
+    state.justFailed.delete(id);
+    render();
+  };
+  if (!node) { finalise(); return; }
+  node.classList.add("tb-task-fading");
+  setTimeout(finalise, 320);
+};
+
+/**
+ * 1 Hz live elapsed timer: mutates only the .tb-elapsed-text node
+ * inside each .tb-elapsed-live[data-since], so we don't re-render
+ * the accordion (which would tear down expanded panels).
+ */
+const tickLiveTimers = () => {
+  const now = Date.now();
+  document.querySelectorAll(".tb-elapsed-live[data-since]").forEach((wrap) => {
+    const since = Number(wrap.getAttribute("data-since"));
+    if (!since) return;
+    const text = wrap.querySelector(".tb-elapsed-text");
+    if (text) text.textContent = formatDuration(now - since);
+  });
+};
+setInterval(tickLiveTimers, 1000);
 
 // Refresh relative timestamps every 30s so "a minute ago" keeps up.
 setInterval(() => { if (tasks.size) renderList(); }, 30000);

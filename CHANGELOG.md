@@ -5,6 +5,60 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.6.1] — 2026-04-13
+
+### Changed
+
+- **Prompt library refactored to composable building blocks.**
+  `src/transport/http/public/assets/prompts.js` no longer has four
+  long, near-duplicate template strings. Reusable wording lives in
+  one frozen `PROMPT_FRAGMENTS` object — `role`, `taggingNote`,
+  `resultFormat`, `metadataNudge`, `failureRule`, `stateOnlyRule` —
+  and each template is a `compose([...sections])` of named blocks.
+  Net effect:
+  - The "metadata nudge" paragraph (`model` / `tokens_in` / etc.)
+    lives in **one place**, not three.
+  - The tagging note and the failure rule are likewise single-source.
+  - Templates went from 80+ lines of inline backtick markdown to
+    short data structures + small `tplX()` builders.
+  - No more hardcoded agent ids, no more `WORKER_ID` placeholder
+    leftovers from earlier rounds.
+- **Public API of `prompts.js`** now also exports `PROMPT_FRAGMENTS`
+  so tests (and any future tooling) can introspect the shared blocks.
+- **`buildPrompt(...)` no longer double-trims** — `compose()` already
+  guarantees a single trailing newline.
+
+### Added
+
+- **Running-task animations** for `in_progress` cards:
+  - **Pulsing status pill** with a soft cyan halo
+    (`@keyframes tb-pulse-pill`) and a continuously-spinning
+    `arrow-repeat` icon.
+  - **Animated "working dots"** (`...`) next to the status text.
+  - **Glowing border** around the entire `in_progress` accordion
+    item via a `::before` pseudo-element with a 2.4 s breathing
+    box-shadow.
+  - **Live elapsed timer pill** in the meta row that ticks once
+    per second using an in-place text mutation — does **not**
+    re-render the accordion, so expanded panels don't collapse.
+    Format adapts: `42 ms` → `4.2 s` → `2m 14s` → `1h 3m 12s`.
+- **State-transition flashes**:
+  - `task.created` → 0.32 s slide-in (`@keyframes tb-slide-in`).
+  - `task.completed` → 1.6 s green wash on the accordion header
+    (`@keyframes tb-flash-done`).
+  - `task.failed` → 1.6 s red wash (`@keyframes tb-flash-failed`).
+  - `task.deleted` / `task.archived` (when "Show archived" off) →
+    0.32 s fade-out + collapse (`@keyframes tb-fade-out`) before
+    the model is mutated, so the card visibly disappears instead
+    of popping out.
+- All animations are gated by `@media (prefers-reduced-motion: reduce)`
+  and disabled for users who've asked the OS to suppress motion.
+- **`tests/prompts.test.js`** — 12 new tests covering the refactored
+  prompt library: shape of every template, ids unique, all four
+  templates build to non-empty output, shared fragments are actually
+  shared (the DRY assertion), variable interpolation, optional
+  blocks (preview), error on unknown id. Suite now **141 / 141**.
+
 ## [0.6.0] — 2026-04-13
 
 ### Added
