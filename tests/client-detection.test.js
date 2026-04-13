@@ -72,9 +72,38 @@ const initMsg = (clientName) => ({
 
 test("createClientTracker: observe() on initialize caches resolved adapter", () => {
   const tracker = createClientTracker({ fallback: "generic" });
-  const req = fakeReq("codex/1.2.3");
-  assert.equal(tracker.resolve(req), "generic"); // nothing cached yet
+  // Use a User-Agent that doesn't match any client pattern so the
+  // pre-initialize lookup actually returns the fallback (the new
+  // resolve() ALSO tries UA-based detection as a backup).
+  const req = fakeReq("neutral-ua/1.0");
+  assert.equal(tracker.resolve(req), "generic"); // nothing cached, UA matches nothing
   tracker.observe(req, initMsg("codex-mcp-client"));
+  assert.equal(tracker.resolve(req), "codex");
+});
+
+test("createClientTracker: resolve() picks up a recognisable User-Agent without a prior initialize", () => {
+  // The whole point of the UA fallback: a tools/call arriving on a fresh
+  // connection (no cache hit, no prior initialize) still resolves correctly
+  // if the User-Agent contains a known client name.
+  const tracker = createClientTracker({ fallback: "generic" });
+  assert.equal(tracker.resolve(fakeReq("codex-mcp-client/1.0")), "codex");
+  assert.equal(tracker.resolve(fakeReq("Claude Desktop/2.0")), "claude-desktop");
+  assert.equal(tracker.resolve(fakeReq("AntigravityIDE/1.0")), "antigravity");
+});
+
+test("createClientTracker: observe() falls back to UA when initialize has no clientInfo.name", () => {
+  // Codex Desktop has been observed sending initialize with an empty / missing
+  // clientInfo.name but a recognisable User-Agent. observe() should still cache
+  // the UA-derived adapter so subsequent tool calls land on it.
+  const tracker = createClientTracker({ fallback: "generic" });
+  const req = fakeReq("codex-mcp-client/2.0");
+  const observed = tracker.observe(req, {
+    jsonrpc: "2.0",
+    id: 1,
+    method: "initialize",
+    params: { protocolVersion: "2025-03-26", capabilities: {} }, // no clientInfo
+  });
+  assert.equal(observed, "codex");
   assert.equal(tracker.resolve(req), "codex");
 });
 

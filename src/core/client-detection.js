@@ -26,6 +26,11 @@
  * matches the normalized clientInfo.name wins. Patterns are deliberately
  * fuzzy so future variants ("Codex Desktop", "openai-codex-2",
  * "AntigravityIDE", …) don't need a code change.
+ *
+ * The same patterns are used as a User-Agent fallback when a request
+ * arrives without a clear clientInfo.name (e.g. Codex Desktop has been
+ * observed sending the MCP initialize without a populated `clientInfo`
+ * but with a recognisable HTTP `User-Agent`).
  */
 const CLIENT_PATTERNS = Object.freeze([
   // Specific, multi-word names first so they don't get shadowed by single-word patterns.
@@ -45,6 +50,15 @@ const CLIENT_PATTERNS = Object.freeze([
   { pattern: /openai/i,                 adapter: "codex" },
 ]);
 
+/** Match against an arbitrary string (UA / clientInfo.name). Returns null on no match. */
+const matchPatterns = (raw) => {
+  if (!raw) return null;
+  for (const { pattern, adapter } of CLIENT_PATTERNS) {
+    if (pattern.test(raw)) return adapter;
+  }
+  return null;
+};
+
 const normalize = (s) =>
   String(s || "")
     .toLowerCase()
@@ -55,18 +69,12 @@ const normalize = (s) =>
 export const adapterForClientName = (clientName, fallback = "generic") => {
   const raw = String(clientName || "").trim();
   if (!raw) return fallback;
-  for (const { pattern, adapter } of CLIENT_PATTERNS) {
-    if (pattern.test(raw)) return adapter;
-  }
-  // Try the normalized form as a last resort — catches odd
-  // separators ("Codex.Desktop", "claude_cowork") that the
-  // unanchored regexes already handle, but keeps the contract
-  // explicit for callers that depend on it.
-  const normalized = normalize(raw);
-  for (const { pattern, adapter } of CLIENT_PATTERNS) {
-    if (pattern.test(normalized)) return adapter;
-  }
-  return fallback;
+  return matchPatterns(raw) || matchPatterns(normalize(raw)) || fallback;
+};
+
+/** Pull the best adapter id from an HTTP request's User-Agent header. */
+export const adapterForUserAgent = (userAgent, fallback = null) => {
+  return matchPatterns(String(userAgent || "")) || fallback;
 };
 
 const CACHE_MAX = 256;
@@ -117,26 +125,46 @@ export const createClientTracker = ({ fallback = "generic", logger = null } = {}
     get lastInitClientName() { return lastInitClientName; },
 
     /**
-     * Inspect an incoming request body. If it contains an MCP `initialize`
-     * message with clientInfo.name, map it to an adapter id, cache it,
-     * and remember it as the server-wide most-recent. Returns the resolved
-     * adapter id (or null if this wasn't an initialize).
+     * Inspect an incoming request. We look at, in order of preference:
+     *   1. The clientInfo.name in an MCP `initialize` message body.
+     *   2. The HTTP User-Agent header (covers clients like Codex Desktop
+     *      that have been observed sending initialize without a populated
+     *      clientInfo but with a recognisable UA).
+     * Whichever produces a hit is cached for this request's key AND
+     * remembered as the server-wide most-recent. Returns the resolved
+     * adapter id, or null if nothing matched.
      */
     observe(req, body) {
+      const ua = req?.headers?.["user-agent"] || null;
+      const ip = req?.ip || req?.socket?.remoteAddress || null;
       const msg = extractInitialize(body);
-      if (!msg) return null;
-      const clientName = msg?.params?.clientInfo?.name;
-      if (!clientName) return null;
-      const adapterId = adapterForClientName(clientName, fallback);
+      const clientName = msg?.params?.clientInfo?.name || null;
+
+      let adapterId = null;
+      let source = null;
+      if (clientName) {
+        const fromName = matchPatterns(clientName);
+        if (fromName) {
+          adapterId = fromName;
+          source = "clientInfo.name";
+        }
+      }
+      if (!adapterId && msg) {
+        // We saw an initialize but clientInfo.name was useless — try the UA.
+        const fromUa = matchPatterns(ua);
+        if (fromUa) {
+          adapterId = fromUa;
+          source = "user-agent";
+        }
+      }
+      if (!adapterId) return null;
+
       const key = keyForRequest(req);
       remember(key, adapterId);
       lastInitAdapter = adapterId;
-      lastInitClientName = clientName;
+      lastInitClientName = clientName || ua || null;
       log("info", "mcp client detected", {
-        clientName,
-        adapterId,
-        ua: req?.headers?.["user-agent"] || null,
-        ip: req?.ip || req?.socket?.remoteAddress || null,
+        source, clientName, ua, ip, adapterId,
       });
       return adapterId;
     },
@@ -144,15 +172,25 @@ export const createClientTracker = ({ fallback = "generic", logger = null } = {}
     /**
      * Resolve the best-known adapter id for this request, in priority order:
      *   1. Per-key cache (this connection's own initialize).
-     *   2. Server-wide most-recent initialize (catches clients that open
-     *      a fresh TCP connection per request, omit a User-Agent, or
-     *      otherwise change their cache key between init and tool call).
-     *   3. Static fallback.
+     *   2. User-Agent pattern-match on the *current* request (catches
+     *      tool calls that arrive on a fresh TCP connection without
+     *      a prior initialize whose cache entry survived).
+     *   3. Server-wide most-recent initialize.
+     *   4. Static fallback.
      */
     resolve(req) {
       const cached = cache.get(keyForRequest(req));
       if (cached) return cached;
+      const fromUa = adapterForUserAgent(req?.headers?.["user-agent"]);
+      if (fromUa) {
+        log("info", "mcp client resolved via user-agent", {
+          ua: req?.headers?.["user-agent"],
+          adapterId: fromUa,
+        });
+        return fromUa;
+      }
       if (lastInitAdapter) return lastInitAdapter;
+      log("info", "mcp client fallback", { adapterId: fallback });
       return fallback;
     },
   };

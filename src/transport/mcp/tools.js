@@ -19,8 +19,7 @@ const toError = (e) => {
 };
 
 export const createToolHandlers = ({ service, adapterId }) => {
-  const adapter = resolveAdapter(adapterId);
-  const agentForClaim = adapter.id;
+  let currentAdapter = resolveAdapter(adapterId);
 
   const wrap = (fn) => async (args) => {
     try {
@@ -31,15 +30,19 @@ export const createToolHandlers = ({ service, adapterId }) => {
   };
 
   return {
-    adapter,
+    get adapter() { return currentAdapter; },
+    /** Late-bind the adapter id (used by stdio path after initialize handshake). */
+    setAdapterId(id) {
+      currentAdapter = resolveAdapter(id);
+    },
     listPending: wrap(async ({ limit }) => {
       const pending = service.listPending(limit);
       return { count: pending.length, tasks: pending };
     }),
     getTask: wrap(async ({ task_id }) => service.get(task_id)),
     claimTask: wrap(async ({ task_id, agent_id }) => {
-      const claimed = await service.claim(task_id, agent_id ?? agentForClaim);
-      return { task: claimed, instructions: adapter.instructions };
+      const claimed = await service.claim(task_id, agent_id ?? currentAdapter.id);
+      return { task: claimed, instructions: currentAdapter.instructions };
     }),
     submitResult: wrap(async ({ task_id, result, model, tokens_in, tokens_out, total_tokens }) => {
       const done = await service.complete(task_id, result, {

@@ -33,6 +33,7 @@ Do exactly this, using the taskbridge tools as named:
    - Lead with the answer, not the process.
    - Use headings, lists, and tables where they add clarity.
    - Cite sources as Markdown links when you looked something up.
+   - **If you know your model identifier and token usage, pass them as optional arguments**: \`model\` (e.g. \`"claude-opus-4-6"\`, \`"gpt-5"\`, \`"codex-1"\`), \`tokens_in\`, \`tokens_out\`, \`total_tokens\`. Taskbridge surfaces these on the dashboard so the submitter can see the cost.
 8. If you cannot complete the task — ambiguous, unsafe, out of scope, or missing context — call \`fail_task\` with the \`id\` and a short reason (≤ 2 sentences). Do NOT guess.
 
 Rules:
@@ -64,7 +65,7 @@ Do exactly this:
 3. Call \`claim_task\` with id \`${TASK_ID}\`.
 4. Complete the work described in the task's \`prompt\` field, using whatever other tools you have (web search, code execution, file tools). Focus on the submitter's actual intent; if the prompt is ambiguous, interpret it charitably but be explicit about your interpretation in the result.
 5. (Optional) Call \`report_progress\` with a short status update while you work.
-6. Call \`submit_result\` with id \`${TASK_ID}\` and a **well-formatted Markdown** answer. Lead with the conclusion, then supporting detail. Cite sources as Markdown links.
+6. Call \`submit_result\` with id \`${TASK_ID}\` and a **well-formatted Markdown** answer. Lead with the conclusion, then supporting detail. Cite sources as Markdown links. **Pass the optional \`model\`, \`tokens_in\`, \`tokens_out\`, \`total_tokens\` arguments if your runtime exposes them — taskbridge displays them on the dashboard.**
 7. If you cannot complete the task, call \`fail_task\` with id \`${TASK_ID}\` and a ≤ 2 sentence reason. Do NOT guess.
 
 Constraints:

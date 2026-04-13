@@ -123,24 +123,34 @@ const runDetails = (t) => {
   const wait = t.claimedAt && t.createdAt ? t.claimedAt - t.createdAt : null;
   const work = t.completedAt && t.claimedAt ? t.completedAt - t.claimedAt : null;
   const total = t.completedAt && t.createdAt ? t.completedAt - t.createdAt : null;
-  const hasTokens = t.totalTokens != null || t.tokensIn != null || t.tokensOut != null;
-  const hasModel = t.model != null;
-  const hasTiming = wait != null || work != null || total != null;
+  const isTerminal = t.status === "done" || t.status === "failed";
+  const hasAny = t.model != null || t.tokensIn != null || t.tokensOut != null
+              || t.totalTokens != null || work != null || wait != null || total != null;
 
-  if (!hasTokens && !hasModel && !hasTiming) return "";
+  // Always show for terminal tasks (even with placeholders) so users know
+  // the surface exists and can tell when their MCP client is supplying
+  // metadata vs not. Hide entirely for pending tasks where nothing is known.
+  if (!isTerminal && !hasAny) return "";
 
-  const rows = [];
-  if (hasModel) rows.push(`<div><dt>Model</dt><dd class="tb-mono">${escape(t.model)}</dd></div>`);
-  if (work != null) rows.push(`<div><dt>Time working</dt><dd>${escape(formatDuration(work))}</dd></div>`);
-  if (wait != null) rows.push(`<div><dt>Time waiting</dt><dd>${escape(formatDuration(wait))}</dd></div>`);
-  if (total != null) rows.push(`<div><dt>Total elapsed</dt><dd>${escape(formatDuration(total))}</dd></div>`);
-  if (t.tokensIn != null) rows.push(`<div><dt>Tokens in</dt><dd>${escape(formatNumber(t.tokensIn))}</dd></div>`);
-  if (t.tokensOut != null) rows.push(`<div><dt>Tokens out</dt><dd>${escape(formatNumber(t.tokensOut))}</dd></div>`);
-  if (t.totalTokens != null) rows.push(`<div><dt>Total tokens</dt><dd>${escape(formatNumber(t.totalTokens))}</dd></div>`);
+  const cell = (label, value, mono = false) => `
+    <div><dt>${label}</dt><dd class="${mono ? "tb-mono" : ""}">${value}</dd></div>
+  `;
+  const dash = `<span class="text-body-secondary">—</span>`;
 
   return `
     <div class="tb-section-label mt-3">Run details</div>
-    <dl class="tb-timestamps tb-run-details">${rows.join("")}</dl>
+    <dl class="tb-timestamps tb-run-details">
+      ${cell("Model", t.model ? escape(t.model) : dash, true)}
+      ${cell("Time working", work != null ? escape(formatDuration(work)) : dash)}
+      ${cell("Time waiting", wait != null ? escape(formatDuration(wait)) : dash)}
+      ${cell("Total elapsed", total != null ? escape(formatDuration(total)) : dash)}
+      ${cell("Tokens in", t.tokensIn != null ? escape(formatNumber(t.tokensIn)) : dash)}
+      ${cell("Tokens out", t.tokensOut != null ? escape(formatNumber(t.tokensOut)) : dash)}
+      ${cell("Total tokens", t.totalTokens != null ? escape(formatNumber(t.totalTokens)) : dash)}
+    </dl>
+    ${(t.model == null && t.totalTokens == null && t.tokensIn == null && t.tokensOut == null && isTerminal)
+      ? `<div class="small text-body-secondary mt-1"><i class="bi bi-info-circle me-1"></i>Model and token usage are populated when your MCP client passes <code>model</code> / <code>tokens_in</code> / <code>tokens_out</code> on <code>submit_result</code>. The prompt-library templates already do this when the agent supports it.</div>`
+      : ""}
   `;
 };
 

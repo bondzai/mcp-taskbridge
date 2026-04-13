@@ -27,7 +27,7 @@ const main = async () => {
     agentId: config.agentId,
   });
 
-  await startStdioMcpServer({ service, adapterId: config.agentId });
+  await startStdioMcpServer({ service, adapterId: config.agentId, logger });
 };
 
 main().catch((err) => {

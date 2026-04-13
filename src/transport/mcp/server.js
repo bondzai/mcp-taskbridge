@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { adapterForClientName } from "../../core/client-detection.js";
 import { createToolHandlers, toolDefinitions } from "./tools.js";
 
 export const createMcpServer = ({
@@ -18,10 +19,32 @@ export const createMcpServer = ({
   return { server, handlers };
 };
 
-export const startStdioMcpServer = async ({ service, adapterId }) => {
+/**
+ * Stdio MCP server. After the SDK handshake completes we ask the underlying
+ * Server for the connected client's clientInfo and use it to refine the
+ * adapter id — so a client that registers `node bin/mcp.js` without setting
+ * TASKBRIDGE_AGENT_ID still gets tagged correctly (e.g. Codex Desktop's
+ * stdio path).
+ */
+export const startStdioMcpServer = async ({ service, adapterId, logger }) => {
   const { server, handlers } = createMcpServer({ service, adapterId });
   const transport = new StdioServerTransport();
   await server.connect(transport);
+  // McpServer wraps the low-level Server on `.server`; that's where
+  // getClientVersion() lives.
+  const clientInfo = server.server?.getClientVersion?.();
+  if (clientInfo?.name) {
+    const detected = adapterForClientName(clientInfo.name, adapterId);
+    if (detected !== adapterId) {
+      handlers.setAdapterId?.(detected);
+      logger?.info?.("stdio mcp client detected", {
+        clientName: clientInfo.name,
+        clientVersion: clientInfo.version ?? null,
+        from: adapterId,
+        to: detected,
+      });
+    }
+  }
   return { server, handlers };
 };
 

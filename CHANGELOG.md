@@ -5,6 +5,62 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.5.1] — 2026-04-13
+
+### Fixed
+
+- **Codex Desktop tasks were tagged `generic` instead of `codex`** even
+  with the dynamic detection from 0.4.0 in place. Root cause: Codex
+  Desktop's `initialize` message carried a `clientInfo` object with
+  no `name` field, so the existing detector had nothing to match on
+  and the task fell through to the static `TASKBRIDGE_AGENT_ID`
+  fallback (which is now `generic`).
+
+  Fix is layered:
+  1. **`createClientTracker.observe()`** — when `initialize` arrives
+     with an empty / missing `clientInfo.name`, it now falls back to
+     pattern-matching the HTTP `User-Agent` header instead. The cache
+     entry it writes is still keyed on `User-Agent + remoteAddress`,
+     so subsequent `tools/call`s on the same connection find it.
+  2. **`createClientTracker.resolve()`** — even when no initialize
+     was ever observed, every request now also pattern-matches its
+     own `User-Agent` header. So a `tools/call` arriving on a fresh
+     TCP connection still resolves correctly without a prior init.
+  3. **Stdio MCP path is now dynamic too**. After
+     `await server.connect(transport)` in `startStdioMcpServer()`,
+     we read `server.server.getClientVersion()?.name` and call
+     `handlers.setAdapterId(detected)` to re-bind the claim agent.
+     Means a Codex / Claude Desktop / Antigravity user who registers
+     `node bin/mcp.js` without setting `TASKBRIDGE_AGENT_ID` still
+     gets the right tag.
+  4. **`createToolHandlers`** now exposes `setAdapterId(id)` and
+     reads the adapter at call time (closure variable instead of
+     captured-at-creation). Prepared for future late-binding cases.
+  5. **Diagnostic logging** — every detection path now emits a
+     structured log line:
+     - `mcp client detected` (with `source: clientInfo.name | user-agent`)
+     - `mcp client resolved via user-agent` (UA fallback in resolve())
+     - `mcp client fallback` (no signal at all → static default)
+     So the next time someone sees an unexpected agent tag, the
+     web server's stderr has the exact reason.
+  6. Cleanup of 107 zombie `bin/mcp.js` processes that supergateway's
+     stateless mode left behind.
+
+### Added
+
+- **Run details section now always renders for terminal tasks**, with
+  `—` placeholders when model / tokens are missing. A small inline
+  hint explains how to populate them: "your MCP client should pass
+  `model` / `tokens_in` / `tokens_out` on `submit_result`". The
+  prompt-library templates (`solve-oldest`, `solve-this`) have been
+  updated to nudge agents to do exactly that.
+- `adapterForUserAgent(userAgent, fallback)` — exported helper that
+  pattern-matches against an HTTP User-Agent string. Re-uses the
+  same priority-ordered regex list as `adapterForClientName`.
+- 2 new tests: UA-only resolve without a prior initialize; observe
+  on initialize with empty `clientInfo` falls through to UA matching.
+  Suite now **124 / 124**.
+
 ## [0.5.0] — 2026-04-13
 
 ### Added
