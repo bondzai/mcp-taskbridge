@@ -29,8 +29,22 @@ export const createRoutes = ({
   health = null,
   externalChecks = [],
   mcpHandler = null,
+  mcpHandlerForAdapter = null,
 }) => {
   const router = express.Router();
+
+  /**
+   * Validate a `:agentId` path segment for /mcp/<agentId>.
+   * Allows lowercase + digits + dash + underscore, length 1..64.
+   * Anything else is rejected with 400 to keep the URL space clean
+   * and prevent path traversal / weird routing collisions.
+   */
+  const sanitizeAgentId = (raw) => {
+    if (typeof raw !== "string") return null;
+    const trimmed = raw.trim();
+    if (!/^[a-z0-9][a-z0-9_-]{0,63}$/i.test(trimmed)) return null;
+    return trimmed;
+  };
 
   if (mcpHandler) {
     const mcpJson = express.json({ limit: JSON_LIMIT });
@@ -75,6 +89,46 @@ export const createRoutes = ({
     router.post("/mcp", mcpJson, wrapped);
     router.get("/mcp", wrapped);
     router.delete("/mcp", wrapped);
+
+    /**
+     * Per-URL routing — `/mcp/<agentId>` is the explicit, dynamic
+     * way to label a client without prompt-level hardcoding or
+     * environment variables. The :agentId path segment is taken
+     * verbatim as the adapter id.
+     *
+     * Each request builds a fresh handler bound to that fixed
+     * adapter id (no clientTracker involvement).
+     */
+    if (mcpHandlerForAdapter) {
+      const wrappedAdapter = async (req, res) => {
+        const agentId = sanitizeAgentId(req.params.agentId);
+        if (!agentId) {
+          return res.status(400).json({
+            jsonrpc: "2.0",
+            id: req.body?.id ?? null,
+            error: {
+              code: -32602,
+              message: "invalid agentId path segment — must be 1-64 chars of [a-z0-9_-]",
+            },
+          });
+        }
+        try {
+          const adapterHandler = mcpHandlerForAdapter(agentId);
+          await adapterHandler(req, res);
+        } catch (err) {
+          if (!res.headersSent) {
+            res.status(500).json({
+              jsonrpc: "2.0",
+              id: req.body?.id ?? null,
+              error: { code: -32603, message: "Internal error: " + err.message },
+            });
+          }
+        }
+      };
+      router.post("/mcp/:agentId", mcpJson, wrappedAdapter);
+      router.get("/mcp/:agentId", wrappedAdapter);
+      router.delete("/mcp/:agentId", wrappedAdapter);
+    }
   }
 
   router.get("/api/health", async (req, res) => {

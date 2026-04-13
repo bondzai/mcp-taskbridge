@@ -72,14 +72,36 @@ export const startStdioMcpServer = async ({ service, adapterId, logger }) => {
  *   3. Tool callers can always override by passing an explicit `agent_id`
  *      argument to `claim_task` — that wins over everything else.
  */
-export const createHttpMcpHandler = ({ service, clientTracker, name, version }) => {
+/**
+ * Adapter resolution priority for HTTP MCP requests:
+ *   1. `fixedAdapterId` — set by per-URL routes like `/mcp/<adapterId>`.
+ *      The path segment is authoritative; no detection runs.
+ *   2. `clientTracker` — for the catch-all `/mcp` endpoint, observes
+ *      the request body / headers and resolves a best-effort adapter.
+ *   3. Tool-level `agent_id` argument on `claim_task` — STILL beats
+ *      everything above (handled in the service layer).
+ */
+export const createHttpMcpHandler = ({
+  service,
+  clientTracker,
+  fixedAdapterId = null,
+  name,
+  version,
+}) => {
   if (!service) throw new Error("service is required");
-  if (!clientTracker) throw new Error("clientTracker is required");
+  if (!fixedAdapterId && !clientTracker) {
+    throw new Error("either fixedAdapterId or clientTracker is required");
+  }
   return async (req, res) => {
-    // Detect-or-resolve before we spin up the server so the adapter id is
-    // baked into the handlers from the start.
-    const observed = clientTracker.observe(req, req.body);
-    const adapterId = observed || clientTracker.resolve(req);
+    let adapterId;
+    if (fixedAdapterId) {
+      adapterId = fixedAdapterId;
+    } else {
+      // Detect-or-resolve before we spin up the server so the adapter id
+      // is baked into the handlers from the start.
+      const observed = clientTracker.observe(req, req.body);
+      adapterId = observed || clientTracker.resolve(req);
+    }
 
     const { server } = createMcpServer({ service, adapterId, name, version });
     const transport = new StreamableHTTPServerTransport({

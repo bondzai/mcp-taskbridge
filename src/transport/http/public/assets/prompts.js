@@ -16,21 +16,17 @@ export const PROMPT_TEMPLATES = [
   {
     id: "solve-oldest",
     name: "Solve oldest pending task",
-    description: "Claim the single oldest pending task and complete it end-to-end.",
+    description: "Claim the single oldest pending task and complete it end-to-end. Agent labelling is decided by the URL the client is registered at (e.g. /mcp/codex), so this prompt is identity-neutral.",
     icon: "bi-play-circle",
-    variables: [
-      { key: "WORKER_ID", label: "Your worker id (becomes the agent badge)", placeholder: "e.g. codex / claude-opus-4-6 / antigravity", required: true },
-    ],
-    build: ({ WORKER_ID }) => {
-      const worker = (WORKER_ID || "codex").trim() || "codex";
-      return `You are an MCP agent connected to the **taskbridge** connector. Your job is to pick up and complete ONE task from the pending queue.
+    variables: [],
+    build: () => `You are an MCP agent connected to the **taskbridge** connector. Your job is to pick up and complete ONE task from the pending queue.
 
 Do exactly this, using the taskbridge tools as named:
 
 1. Call \`list_pending_tasks\` to see what is waiting.
 2. If the list is empty, reply "No pending tasks." and stop.
 3. Otherwise pick the **oldest** task (smallest \`createdAt\`).
-4. Call \`claim_task\` with **two** arguments — the task's \`id\` AND \`agent_id: "${worker}"\`. The explicit \`agent_id\` makes sure the dashboard tags the task as you, regardless of how taskbridge auto-detects clients. ALWAYS pass it.
+4. Call \`claim_task\` with the task's \`id\`. Taskbridge tags the task with the adapter id from the URL you connected to (e.g. \`/mcp/codex\` → tagged \`codex\`), so you do NOT need to pass \`agent_id\` — but if you want to override (e.g. you're a sub-worker), pass \`agent_id: "<your-name>"\` and that wins.
 5. Read the task's \`prompt\` field carefully. Use whatever other tools you have (web search, code execution, file tools, reasoning) to do the actual work.
 6. While you work, optionally call \`report_progress\` with short, user-facing status updates so the submitter can see you're alive. Keep each under 200 characters.
 7. When you have the final answer, call \`submit_result\` with the task's \`id\` and a **well-formatted Markdown** result. The result is what the submitter sees in the browser, so:
@@ -44,24 +40,20 @@ Rules:
 - Use taskbridge tools ONLY for state transitions (claim / progress / submit / fail).
 - Do NOT claim more than one task in this run.
 - Do NOT modify tasks you did not claim.
-- ALWAYS pass \`agent_id: "${worker}"\` to \`claim_task\`.
-`;
-    },
+`,
   },
 
   {
     id: "solve-this",
     name: "Solve this specific task",
-    description: "Claim a task by id and complete it. The id is pre-filled from the current task.",
+    description: "Claim a task by id and complete it. The id is pre-filled from the current task. Identity comes from your /mcp/<adapter> URL — no agent_id needed in the prompt.",
     icon: "bi-bullseye",
     variables: [
       { key: "TASK_ID", label: "Task id", placeholder: "e.g. 423b0b0d-...", required: true },
-      { key: "WORKER_ID", label: "Your worker id (becomes the agent badge)", placeholder: "e.g. codex / claude-opus-4-6 / antigravity", required: true },
       { key: "PROMPT_PREVIEW", label: "Prompt preview (optional)", placeholder: "pasted from the task card", required: false, textarea: true },
     ],
-    build: ({ TASK_ID, WORKER_ID, PROMPT_PREVIEW }) => {
+    build: ({ TASK_ID, PROMPT_PREVIEW }) => {
       const preview = (PROMPT_PREVIEW || "").trim();
-      const worker = (WORKER_ID || "codex").trim() || "codex";
       return `You are an MCP agent connected to the **taskbridge** connector. There is one specific task you must handle. Its id is:
 
     ${TASK_ID}
@@ -70,7 +62,7 @@ Do exactly this:
 
 1. Call \`get_task\` with id \`${TASK_ID}\` to read its current \`prompt\` and \`status\`.
 2. If the status is not \`pending\`, stop and report what the status is. Do NOT try to claim an already-claimed task.
-3. Call \`claim_task\` with **two** arguments — \`task_id: "${TASK_ID}"\` AND \`agent_id: "${worker}"\`. ALWAYS pass \`agent_id\` so the dashboard tags this task correctly regardless of auto-detection.
+3. Call \`claim_task\` with id \`${TASK_ID}\`. Taskbridge tags the task with the adapter id from the URL you connected to (e.g. \`/mcp/codex\` → tagged \`codex\`), so you do NOT need to pass \`agent_id\` — pass it only if you want to override.
 4. Complete the work described in the task's \`prompt\` field, using whatever other tools you have (web search, code execution, file tools). Focus on the submitter's actual intent; if the prompt is ambiguous, interpret it charitably but be explicit about your interpretation in the result.
 5. (Optional) Call \`report_progress\` with id \`${TASK_ID}\` and a short status update while you work.
 6. Call \`submit_result\` with id \`${TASK_ID}\` and a **well-formatted Markdown** answer. Lead with the conclusion, then supporting detail. Cite sources as Markdown links. **Also pass these optional arguments if your runtime exposes them**: \`model\` (e.g. \`"claude-opus-4-6"\`, \`"gpt-5"\`, \`"codex-1"\`), \`tokens_in\`, \`tokens_out\`, \`total_tokens\`. Taskbridge displays them on the dashboard.
@@ -79,7 +71,6 @@ Do exactly this:
 Constraints:
 - Only touch task \`${TASK_ID}\`. Do not claim, modify, or submit any other task.
 - Use taskbridge tools ONLY for state transitions.
-- ALWAYS pass \`agent_id: "${worker}"\` to \`claim_task\`.
 ${preview ? `\nTask prompt preview (for context — still call \`get_task\` for the authoritative version):\n\n> ${preview.split("\n").join("\n> ")}\n` : ""}`;
     },
   },

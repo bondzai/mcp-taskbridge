@@ -183,7 +183,11 @@ test("integration: MCP stdio returns structured errors on bad input", async () =
   }
 });
 
-test("integration: unknown agent id falls back to generic adapter", async () => {
+test("integration: unknown agent id is preserved as the agent tag (uses generic adapter instructions)", async () => {
+  // Behaviour as of v0.5.3: custom / unknown adapter ids are no longer
+  // normalised to "generic". The raw id is used as the claim's agent tag,
+  // while the *instructions* string still falls back to the generic
+  // adapter's text. This is what makes /mcp/<custom-name> useful.
   const env = await buildEnvironment();
   const t = await env.service.create("unknown-agent-task");
   const { client, transport } = await connectClient({
@@ -198,7 +202,9 @@ test("integration: unknown agent id falls back to generic adapter", async () => 
     });
     const body = JSON.parse(res.content[0].text);
     assert.equal(body.task.status, "in_progress");
-    assert.equal(body.task.agentId, "generic");
+    assert.equal(body.task.agentId, "some-future-mcp-we-dont-know-about");
+    // Instructions still come from the generic adapter
+    assert.match(body.instructions, /submit_result/);
   } finally {
     await client.close().catch(() => {});
     await transport.close().catch(() => {});

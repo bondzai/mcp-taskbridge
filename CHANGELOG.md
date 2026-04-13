@@ -5,6 +5,60 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.6.0] — 2026-04-13
+
+### Added
+
+- **Per-URL adapter routing — `POST/GET/DELETE /mcp/<adapterId>`.**
+  The agent id is taken straight from the URL path. No detection,
+  no env vars, no prompt-level hardcoding. Each MCP client gets its
+  own "lane" by registering a different URL:
+  - `http://127.0.0.1:3000/mcp/codex` → tag `codex`
+  - `http://127.0.0.1:3000/mcp/claude-cowork` → tag `claude-cowork`
+  - `http://127.0.0.1:3000/mcp/my-bot` → tag `my-bot`
+  Path segment is validated against `/^[a-z0-9][a-z0-9_-]{0,63}$/i`.
+  Bad / missing / oversize segments → 400 with a JSON-RPC error.
+- **Custom adapter ids are now first-class.** `createToolHandlers`
+  tracks the raw id used for `claim_task` separately from the
+  resolved registry adapter. Unknown ids — like `my-bot-7` — pass
+  straight through as the agent tag instead of being normalised to
+  `generic`. The registry is still consulted for the `instructions`
+  string returned in the claim response (unknown ids fall back to
+  the generic instructions text).
+- **Five new tests** in `tests/http-mcp-native.test.js`:
+  - `/mcp/:agentId` tags the task with the URL path adapter id.
+  - `/mcp/:agentId` works with a brand-new custom name with no
+    pre-existing registry entry.
+  - Path traversal / weird characters → 404 or 400 (both safe).
+  - Empty / oversize agent id → 400.
+  - Explicit `agent_id` arg in `claim_task` still wins over the URL.
+
+### Changed
+
+- **Resolution priority for the HTTP MCP path**, in order of who
+  wins:
+  1. Tool-level `agent_id` arg on `claim_task` (highest).
+  2. URL path: `/mcp/<adapterId>` (new).
+  3. Detection on `/mcp` (clientInfo.name → User-Agent → last init seen).
+  4. Static `TASKBRIDGE_AGENT_ID` env (default `generic`).
+- **Prompt library templates reverted to identity-neutral.** The
+  `solve-oldest` and `solve-this` templates no longer require a
+  `WORKER_ID` variable. They tell the agent that taskbridge labels
+  the task from the URL it connected to (`/mcp/codex` etc.) and
+  passing `agent_id` to `claim_task` is now optional. Per-URL
+  routing is the recommended default.
+- **Behaviour change**: `tests/integration-mcp-stdio.test.js`'s
+  "unknown agent id" test was rewritten for the new contract.
+  Old: unknown id → tagged `generic`. New: unknown id → tagged
+  with the raw id, generic instructions only. This is what makes
+  custom adapters work at all.
+
+### Fixed
+
+- The 0.5.2 prompt-library templates required hardcoding the agent
+  name into every prompt — clunky and not what the user asked for.
+  Per-URL routing replaces that workaround entirely.
+
 ## [0.5.2] — 2026-04-13
 
 ### Fixed

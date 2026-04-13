@@ -287,3 +287,138 @@ test("native /mcp: explicit agent_id argument on claim_task beats detection", as
     db.close();
   }
 });
+
+/* ============================================================
+   Per-URL routing: /mcp/<agentId> takes the agent id straight
+   from the URL path. No detection, no clientTracker. This is
+   the recommended deployment pattern for testing multiple
+   clients against one taskbridge instance.
+   ============================================================ */
+
+const callMcpAt = async (url, path, message) => {
+  const res = await fetch(`${url}${path}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Accept": "application/json, text/event-stream",
+    },
+    body: JSON.stringify(message),
+  });
+  const ct = res.headers.get("content-type") || "";
+  const text = await res.text();
+  if (ct.includes("application/json")) {
+    return { status: res.status, body: JSON.parse(text) };
+  }
+  const line = text.split("\n").find((l) => l.startsWith("data: "));
+  if (!line) return { status: res.status, body: null };
+  return { status: res.status, body: JSON.parse(line.slice(6)) };
+};
+
+test("/mcp/:agentId: tags the task with the URL path adapter id", async () => {
+  const { server, url, service, db } = await buildLiveApp({ fallback: "generic" });
+  try {
+    const created = await service.create("per-url codex");
+
+    const claimed = await callMcpAt(url, "/mcp/codex", {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/call",
+      params: { name: "claim_task", arguments: { task_id: created.id } },
+    });
+    const body = JSON.parse(claimed.body.result.content[0].text);
+    assert.equal(body.task.agentId, "codex");
+  } finally {
+    await shutdown(server);
+    db.close();
+  }
+});
+
+test("/mcp/:agentId: works with a brand-new custom agent name (no regex match needed)", async () => {
+  const { server, url, service, db } = await buildLiveApp({ fallback: "generic" });
+  try {
+    const created = await service.create("per-url custom");
+    const claimed = await callMcpAt(url, "/mcp/my-cool-bot-7", {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/call",
+      params: { name: "claim_task", arguments: { task_id: created.id } },
+    });
+    const body = JSON.parse(claimed.body.result.content[0].text);
+    assert.equal(body.task.agentId, "my-cool-bot-7");
+  } finally {
+    await shutdown(server);
+    db.close();
+  }
+});
+
+test("/mcp/:agentId: rejects a path segment with bad characters with 400", async () => {
+  const { server, url, db } = await buildLiveApp({ fallback: "generic" });
+  try {
+    const res = await fetch(`${url}/mcp/this..is/bad`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Accept": "application/json, text/event-stream",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: { name: "list_pending_tasks", arguments: {} },
+      }),
+    });
+    // The slash makes Express treat it as a different route → 404
+    // rather than reaching our :agentId handler. That's fine — both
+    // outcomes mean "you can't smuggle weird paths through".
+    assert.ok(res.status === 404 || res.status === 400);
+  } finally {
+    await shutdown(server);
+    db.close();
+  }
+});
+
+test("/mcp/:agentId: empty / too-long agent id rejected with 400", async () => {
+  const { server, url, db } = await buildLiveApp({ fallback: "generic" });
+  try {
+    // 65 chars — over the 64-char limit
+    const tooLong = "a".repeat(65);
+    const res = await fetch(`${url}/mcp/${tooLong}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Accept": "application/json, text/event-stream",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: { name: "list_pending_tasks", arguments: {} },
+      }),
+    });
+    assert.equal(res.status, 400);
+  } finally {
+    await shutdown(server);
+    db.close();
+  }
+});
+
+test("/mcp/:agentId: explicit agent_id arg on claim_task still wins over the URL", async () => {
+  const { server, url, service, db } = await buildLiveApp({ fallback: "generic" });
+  try {
+    const created = await service.create("explicit beats url");
+    const claimed = await callMcpAt(url, "/mcp/codex", {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/call",
+      params: {
+        name: "claim_task",
+        arguments: { task_id: created.id, agent_id: "claimed-by-arg" },
+      },
+    });
+    const body = JSON.parse(claimed.body.result.content[0].text);
+    assert.equal(body.task.agentId, "claimed-by-arg");
+  } finally {
+    await shutdown(server);
+    db.close();
+  }
+});

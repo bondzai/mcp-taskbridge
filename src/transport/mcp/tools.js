@@ -19,6 +19,11 @@ const toError = (e) => {
 };
 
 export const createToolHandlers = ({ service, adapterId }) => {
+  // Track the raw id (used verbatim for claim_task) separately from the
+  // resolved adapter (registry entry, used for the instructions string).
+  // This lets custom adapter ids — e.g. /mcp/my-cool-bot-7 — pass straight
+  // through as the agent tag without being normalised to "generic".
+  let currentAdapterId = adapterId || "generic";
   let currentAdapter = resolveAdapter(adapterId);
 
   const wrap = (fn) => async (args) => {
@@ -31,8 +36,10 @@ export const createToolHandlers = ({ service, adapterId }) => {
 
   return {
     get adapter() { return currentAdapter; },
+    get adapterId() { return currentAdapterId; },
     /** Late-bind the adapter id (used by stdio path after initialize handshake). */
     setAdapterId(id) {
+      currentAdapterId = id || "generic";
       currentAdapter = resolveAdapter(id);
     },
     listPending: wrap(async ({ limit }) => {
@@ -41,7 +48,7 @@ export const createToolHandlers = ({ service, adapterId }) => {
     }),
     getTask: wrap(async ({ task_id }) => service.get(task_id)),
     claimTask: wrap(async ({ task_id, agent_id }) => {
-      const claimed = await service.claim(task_id, agent_id ?? currentAdapter.id);
+      const claimed = await service.claim(task_id, agent_id ?? currentAdapterId);
       return { task: claimed, instructions: currentAdapter.instructions };
     }),
     submitResult: wrap(async ({ task_id, result, model, tokens_in, tokens_out, total_tokens }) => {
