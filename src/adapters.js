@@ -21,6 +21,27 @@ export const ADAPTERS = Object.freeze({
       SHARED_CONTRACT +
       " Cowork runs many agents in parallel; always include your agent_id when claiming.",
   },
+  codex: {
+    id: "codex",
+    label: "OpenAI Codex",
+    instructions:
+      SHARED_CONTRACT +
+      " The task prompt is the authoritative brief — do NOT try to infer it" +
+      " from files in the current working directory, and do NOT treat it as" +
+      " a request to edit this repo unless the prompt explicitly says so." +
+      " Use your own tools (shell, search, apply) to do the work, then call" +
+      " submit_result with a well-formatted Markdown answer.",
+  },
+  antigravity: {
+    id: "antigravity",
+    label: "Google Antigravity",
+    instructions:
+      SHARED_CONTRACT +
+      " You are running inside an IDE, so file and terminal tools are" +
+      " available — use them freely to complete the task. If multiple" +
+      " sub-agents are spawned, only ONE should call claim_task for a" +
+      " given id; the rest must read via get_task.",
+  },
   generic: {
     id: "generic",
     label: "Generic MCP Client",

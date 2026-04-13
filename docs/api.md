@@ -103,6 +103,99 @@ es.addEventListener("task.completed", (e) => {
 
 ---
 
+## `GET /api/health`
+
+Return a runtime snapshot for monitoring. Powers the `/status.html` page.
+
+**Response — 200** (healthy) **or 503** (DB unreadable / tracker not wired)
+
+```json
+{
+  "ok": true,
+  "version": "0.3.0",
+  "uptimeMs": 12345,
+  "startedAt": 1712699980000,
+  "db": {
+    "ok": true,
+    "journalMode": "wal",
+    "tasks": { "total": 7, "pending": 1, "in_progress": 0, "done": 6, "failed": 0 },
+    "error": null
+  },
+  "sse":  { "subscribers": 2 },
+  "events": {
+    "totalEmitted": 42,
+    "lastCreatedAt": 1712700000000,
+    "lastClaimedAt": 1712700001000,
+    "lastProgressAt": null,
+    "lastCompletedAt": 1712700005000,
+    "lastFailedAt": null
+  },
+  "webhook": {
+    "received": 15,
+    "rejected": 0,
+    "lastOkAt": 1712700005000,
+    "lastRejectedAt": null
+  },
+  "mcp": {
+    "status": "active",
+    "lastActivityAt": 1712700005000,
+    "activeWindowMs": 300000,
+    "idleWindowMs": 3600000
+  }
+}
+```
+
+**What each field really means**
+
+| Field                     | Observed how                                                                                   |
+|---------------------------|------------------------------------------------------------------------------------------------|
+| `db.ok` / `.tasks` / `.journalMode` | Direct SQLite probe (`COUNT(*) GROUP BY status`, `PRAGMA journal_mode`).               |
+| `sse.subscribers`         | Number of live `GET /api/events` connections held open by the broadcaster.                     |
+| `events.*`                | Counters + per-event-type timestamps, updated by an in-process subscriber on the event bus.    |
+| `webhook.received / rejected / lastOk* / lastReject*` | Incremented by the `/webhooks/task-events` route on every request.         |
+| `mcp.status`              | **Inferred** — `active` if any `task.claimed/progress/completed/failed` event or signed webhook arrived within `activeWindowMs` (5 min), `idle` within `idleWindowMs` (1 h), else `unknown`. The web server has no direct channel to `bin/mcp.js`. |
+| `external[]`              | Dynamic probes of neighbouring tools that are NOT part of the web process. Runs on every `/api/health` request, in parallel, with short per-probe timeouts. Each entry: `{ id, label, kind, level, message, responseMs, checkedAt, hint }`. `level` is one of `ok`, `warn`, `off`, `bad`. The hardcoded default list (in `src/core/external-checks.js`) probes: (1) **supergateway** via an MCP `initialize` POST to `http://127.0.0.1:8000/mcp`, (2) **cloudflared tunnel** via `pgrep -f "cloudflared tunnel"`, (3) **stdio MCP clients** via the inferred `mcp.status`. `bin/web.js` opts into the default list; tests default to empty. |
+
+**Status codes**
+
+- `200` — `db.ok === true`.
+- `503` — `db.ok === false` (the DB probe threw). The body is still the full snapshot so the caller can inspect `db.error`.
+
+---
+
+## `GET /api/config`
+
+Return non-secret runtime config for the UI. Used by the settings page and the navbar version badge.
+
+**Response — 200**
+
+```json
+{
+  "agentId": "claude-cowork",
+  "webhookUrl": "http://127.0.0.1:3000/webhooks/task-events",
+  "webHost": "127.0.0.1",
+  "webPort": 3000,
+  "version": "0.3.0"
+}
+```
+
+No secrets are exposed. Values are sourced from the `TASKBRIDGE_*` env vars and `package.json`'s `version` field. Anything the server couldn't determine comes back as `null`.
+
+---
+
+## `GET /api/changelog`
+
+Return `CHANGELOG.md` from the project root as `text/markdown; charset=utf-8`. Powers the in-app changelog modal that opens when you click the version badge.
+
+**Responses**
+
+- `200` — raw Markdown body
+- `404` — `projectRoot` wasn't wired through to `createApp`, or `CHANGELOG.md` is missing
+
+Clients render it with `marked` + `DOMPurify` (see `src/transport/http/public/assets/chrome.js`).
+
+---
+
 ## `POST /webhooks/task-events`
 
 Internal endpoint. The MCP process POSTs task state changes here; external callers should not target it.

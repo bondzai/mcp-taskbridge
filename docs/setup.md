@@ -2,36 +2,36 @@
 
 ## Prerequisites
 
-- **Node.js ≥ 18** (20+ recommended; the MCP SDK and `better-sqlite3` work fine on 18)
-- **An MCP client** — Claude Desktop and Claude Code speak stdio natively; Claude Cowork needs the stdio→HTTP bridge described in `docs/cowork.md`
-- A POSIX-ish shell (macOS / Linux / WSL)
+- **Node.js ≥ 18** (20+ recommended — SDK and `better-sqlite3` run fine on both).
+- **An MCP client** — Claude Desktop and Claude Code speak stdio natively; Cowork (and any cloud MCP client) needs the HTTPS bridge in [`cowork.md`](cowork.md).
+- A POSIX-ish shell (macOS / Linux / WSL).
+- `make` (preinstalled on macOS / Linux). Everything below has a `npm run` fallback if you'd rather skip it.
 
 ## Install
 
 ```bash
-cd /Users/jamesbond/Desktop/mcp-taskbridge
-npm install
+make install   # same as: npm install
 ```
 
-## Run the test suite
+### Rebuild native deps after a Node version change
+
+`better-sqlite3` compiles a native addon at install time. If you later switch Node versions (e.g. via `nvm`) it'll crash with `NODE_MODULE_VERSION mismatch`. Rebuild once:
 
 ```bash
-npm test
+make rebuild   # same as: npm rebuild better-sqlite3
 ```
 
-Expect **72 tests / 0 failures / ~15s**. The suite covers:
+## Run the tests
 
-- `tests/core-repo.test.js` — raw SQL layer, claim race, agent filtering
-- `tests/core-service.test.js` — validation, state transitions, event emission, subscriber isolation
-- `tests/webhook-signer.test.js` — HMAC sign + timing-safe verify, tamper + length-mismatch rejection
-- `tests/http-routes.test.js` — REST endpoints, signed webhooks, error mapping
-- `tests/mcp-tools.test.js` — every tool, every error code, adapter fallback
-- `tests/edge-cases.test.js` — parallel claim race, duplicate submit, oversize result, empty reason, multi-subscriber fanout, tampered body, limit capping, cross-agent isolation
-- `tests/integration-mcp-stdio.test.js` — **spawns the real `bin/mcp.js` under the MCP SDK's `Client` + `StdioClientTransport`**, exercises `listTools` → `list_pending_tasks` → `claim_task` → `report_progress` → `submit_result`, verifies HMAC round-trip against a test HTTP server, and confirms unknown-agent fallback to `generic`.
+```bash
+make test      # node --test tests/*.test.js — expect 72 / 72, ~1s
+```
 
-The integration test is what proves the server is MCP-client-agnostic — if it passes, Cowork and any other MCP client will work over the same protocol (transport wrapping aside).
+> On Node 24+, `npm test` as written in `package.json` fails because bare `tests/` is resolved as a module path. `make test` works around that with an explicit glob. If you invoke Node directly, use `node --test --test-concurrency=1 tests/*.test.js`.
 
-## Configure environment (optional)
+The suite covers the core repo, service layer, HTTP routes, SSE, webhook signer, every MCP tool / error code, and an integration test that spawns `bin/mcp.js` under the MCP SDK's `StdioClientTransport`.
+
+## Configure environment
 
 Defaults work for local development. Override via environment variables:
 
@@ -43,9 +43,9 @@ Defaults work for local development. Override via environment variables:
 | `TASKBRIDGE_WEBHOOK_URL`    | `http://<host>:<port>/webhooks/task-events`       | Where the MCP process POSTs state changes    |
 | `TASKBRIDGE_WEBHOOK_SECRET` | `dev-secret-change-me`                            | HMAC secret shared between the two processes |
 | `TASKBRIDGE_AGENT_ID`       | `generic`                                         | Adapter id (picks claim instructions)        |
-| `TASKBRIDGE_DEBUG`          | unset                                             | Set to anything for verbose stderr logs      |
+| `TASKBRIDGE_DEBUG`          | unset                                             | Set to any value for verbose stderr logs     |
 
-**For real use, set a strong `TASKBRIDGE_WEBHOOK_SECRET`** and make sure both processes see the same value:
+**For anything non-localhost, set a strong webhook secret** and make sure both processes see the same value:
 
 ```bash
 export TASKBRIDGE_WEBHOOK_SECRET="$(openssl rand -hex 32)"
@@ -54,22 +54,22 @@ export TASKBRIDGE_WEBHOOK_SECRET="$(openssl rand -hex 32)"
 ## Start the web server
 
 ```bash
-npm run start:web
+make web       # same as: npm run start:web
 ```
 
-Expect a JSON log line on stderr like:
+Expect a JSON log line on stderr:
 
 ```json
-{"ts":"...","level":"info","msg":"web server listening","meta":{"url":"http://127.0.0.1:3000","db":"..."}}
+{"ts":"…","level":"info","msg":"web server listening","meta":{"url":"http://127.0.0.1:3000","db":"…"}}
 ```
 
-Open <http://127.0.0.1:3000> — the **MCP Taskbridge** UI should render.
+Then open <http://127.0.0.1:3000>. You'll see the tasks dashboard; `/settings.html` has the theme picker and server info.
 
 ## Register the MCP server with an MCP client
 
 ### Claude Desktop
 
-Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (create it if missing):
+Edit `~/Library/Application Support/Claude/claude_desktop_config.json`:
 
 ```json
 {
@@ -86,49 +86,71 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (create i
 }
 ```
 
-Then **fully quit and relaunch Claude Desktop** (⌘Q, not just close the window).
+Fully quit and relaunch Claude Desktop (⌘Q, not just close the window).
 
 ### Claude Code
 
-Use Claude Code's MCP config flow to register the same `command` + `args` + `env`, setting `TASKBRIDGE_AGENT_ID=claude-code`. See the Claude Code docs for the current config file location.
+Register the same `command` / `args` / `env` via Claude Code's MCP config, with `TASKBRIDGE_AGENT_ID=claude-code`.
 
 ### Claude Cowork
 
-Cowork connectors only accept **remote HTTPS MCP URLs**, not local stdio. See `docs/cowork.md` for the stdio → HTTP bridge and public-tunnel setup. Set `TASKBRIDGE_AGENT_ID=claude-cowork` in the env passed to `bin/mcp.js`.
+Cowork connectors only accept remote HTTPS MCP URLs. See [`cowork.md`](cowork.md) for the supergateway + cloudflared bridge. Set `TASKBRIDGE_AGENT_ID=claude-cowork`.
 
-### Generic MCP client
+### OpenAI Codex
 
-Any other MCP client can spawn `bin/mcp.js` with no env at all — `TASKBRIDGE_AGENT_ID` defaults to `generic`, and unknown ids also fall back to `generic`, so nothing breaks.
+Codex has a first-class MCP CLI — one command registers taskbridge and writes the right entry into `~/.codex/config.toml`:
 
-## Verify the MCP server is connected
+```bash
+make mcp-register-codex
+```
 
-In a fresh chat with your MCP client, type:
+Under the hood this runs `codex mcp add taskbridge --env TASKBRIDGE_AGENT_ID=codex --env TASKBRIDGE_WEBHOOK_SECRET=… -- /path/to/node /path/to/bin/mcp.js`. Verify with `make mcp-list-codex` — you should see `taskbridge` in the table alongside any existing servers. Remove later with `make mcp-unregister-codex`.
+
+The Makefile auto-detects the binary at `/Applications/Codex.app/Contents/Resources/codex` when `codex` isn't on `PATH`. Override with `make mcp-register-codex CODEX_BIN=/some/other/path`.
+
+### Google Antigravity
+
+Antigravity is a VS Code fork and ships VS Code's native MCP implementation, so configuration lives at:
+
+```
+~/Library/Application Support/Antigravity/User/mcp.json
+```
+
+Two ways to register:
+
+1. **Command palette** — open Antigravity, press ⌘⇧P, run **MCP: Add Server…**, pick **Command (stdio)**, and point it at `bin/mcp.js` with env `TASKBRIDGE_AGENT_ID=antigravity`.
+2. **Copy-paste** — run `make mcp-register-antigravity` to print the exact `mcp.json` snippet with correct absolute paths for this machine, then paste it into the file above and relaunch Antigravity.
+
+After registering, open the Antigravity MCP panel (command palette → **MCP: Show Installed Servers**) — taskbridge should appear with all 6 tools. If not, check Antigravity's Output panel → **MCP** channel for spawn errors.
+
+### Any other MCP client
+
+Spawn `bin/mcp.js` with no env at all — `TASKBRIDGE_AGENT_ID` defaults to `generic`, and unknown ids also fall back to `generic`.
+
+## Verify the connection
+
+In a fresh chat, ask your MCP client:
 
 > List the MCP tools you have available from the taskbridge server.
 
 You should see all six: `list_pending_tasks`, `get_task`, `claim_task`, `submit_result`, `fail_task`, `report_progress`.
 
-If not, check the client's log for spawn errors. Common causes:
+If not, check the client log for spawn errors. Common causes:
 
-- Absolute path to `bin/mcp.js` wrong
-- Node not on `PATH` — set `"command": "/usr/local/bin/node"` (or whatever `which node` prints)
-- Webhook secret mismatch — the web server will log `401` responses when it receives them; the symptom is *the UI never updates* even though DB state is correct
+- Wrong absolute path to `bin/mcp.js`
+- `node` not on the client's `PATH` — use `"command": "/usr/local/bin/node"` (or whatever `which node` prints)
+- Webhook secret mismatch — the DB still updates correctly, but the browser card never flips because the web server rejects the signed webhook with `401`
 
 ## End-to-end smoke test
 
-See `docs/e2e-test.md` for the full step-by-step walkthrough:
+Full walkthrough (HTTP-only + real MCP client): [`e2e-test.md`](e2e-test.md).
 
-- **Path A** — browser + HTTP only (no MCP client required): verifies the web server, SSE, signer, repo, and webhook sink.
-- **Path B** — browser + a real MCP client: verifies the full stdio pipeline, including agent tagging, progress updates, and failure paths.
-
-Short version: submit a task in the browser, tell your MCP client to handle pending taskbridge tasks, watch the card flip `pending → in_progress → done` live.
+Short version: submit a task in the browser, then prompt your MCP client to handle pending taskbridge tasks. Watch the card flip `pending → in_progress → done` live.
 
 ## Reset
 
-To wipe the task history:
-
 ```bash
-rm -rf data/
+make clean     # rm -f data/tasks.db data/tasks.db-shm data/tasks.db-wal
 ```
 
-Then restart the web server. `better-sqlite3` recreates the schema on next open.
+Then restart the web server — the schema is re-created on next open.

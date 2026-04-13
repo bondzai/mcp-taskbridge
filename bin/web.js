@@ -3,12 +3,15 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { config } from "../src/config.js";
+import { createClientTracker } from "../src/core/client-detection.js";
 import { openDatabase } from "../src/core/db.js";
 import { createEventBus } from "../src/core/events.js";
+import { DEFAULT_CHECKS } from "../src/core/external-checks.js";
 import { createTasksRepository } from "../src/core/repo.js";
 import { createTaskService } from "../src/core/service.js";
 import { logger } from "../src/logger.js";
 import { createApp } from "../src/transport/http/app.js";
+import { createHttpMcpHandler } from "../src/transport/mcp/server.js";
 
 const readPackageVersion = () => {
   try {
@@ -20,22 +23,34 @@ const readPackageVersion = () => {
   }
 };
 
-const main = () => {
+const main = async () => {
   const db = openDatabase(config.dbPath);
   const repo = createTasksRepository(db);
   const events = createEventBus();
   const service = createTaskService({ repo, events });
+
+  const version = readPackageVersion();
+  const clientTracker = createClientTracker({ fallback: config.agentId, logger });
+  const mcpHandler = createHttpMcpHandler({
+    service,
+    clientTracker,
+    version: version ?? "0.0.0",
+  });
+
   const { app } = createApp({
     service,
     webhookSecret: config.webhookSecret,
     events,
+    repo,
     projectRoot: config.projectRoot,
+    externalChecks: DEFAULT_CHECKS,
+    mcpHandler,
     publicConfig: {
       agentId: config.agentId,
       webhookUrl: config.webhookUrl,
       webHost: config.webHost,
       webPort: config.webPort,
-      version: readPackageVersion(),
+      version,
     },
   });
 
@@ -54,4 +69,7 @@ const main = () => {
   process.on("SIGTERM", shutdown);
 };
 
-main();
+main().catch((err) => {
+  process.stderr.write(`[mcp-taskbridge:web] fatal: ${err.stack || err.message}\n`);
+  process.exit(1);
+});

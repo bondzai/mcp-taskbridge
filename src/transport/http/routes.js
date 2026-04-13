@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import express from "express";
+import { runExternalChecks } from "../../core/external-checks.js";
 import { ConflictError, NotFoundError, ValidationError } from "../../core/service.js";
 import { SIGNATURE_HEADER, verifySignature } from "../../webhook/signer.js";
 
@@ -24,8 +25,52 @@ export const createRoutes = ({
   webhookSecret,
   publicConfig = {},
   projectRoot = null,
+  repo = null,
+  health = null,
+  externalChecks = [],
+  mcpHandler = null,
 }) => {
   const router = express.Router();
+
+  if (mcpHandler) {
+    const mcpJson = express.json({ limit: JSON_LIMIT });
+    const wrapped = async (req, res) => {
+      try {
+        await mcpHandler(req, res);
+      } catch (err) {
+        if (!res.headersSent) {
+          res.status(500).json({
+            jsonrpc: "2.0",
+            error: { code: -32603, message: "Internal error in MCP transport: " + err.message },
+            id: null,
+          });
+        }
+      }
+    };
+    router.post("/mcp", mcpJson, wrapped);
+    router.get("/mcp", wrapped);
+    router.delete("/mcp", wrapped);
+  }
+
+  router.get("/api/health", async (req, res) => {
+    if (!health) {
+      return res.status(503).json({ ok: false, error: "health tracker not configured" });
+    }
+    const snap = health.snapshot({
+      repo,
+      sseSize: sse?.size?.() ?? null,
+      version: publicConfig.version ?? null,
+    });
+    if (externalChecks.length > 0) {
+      snap.external = await runExternalChecks({
+        checks: externalChecks,
+        mcpStatus: snap.mcp?.status,
+      });
+    } else {
+      snap.external = [];
+    }
+    return res.status(snap.ok ? 200 : 503).json(snap);
+  });
 
   router.get("/api/config", (req, res) => {
     res.json({
@@ -82,10 +127,12 @@ export const createRoutes = ({
       const signature = req.headers[SIGNATURE_HEADER];
       const raw = req.body;
       if (!Buffer.isBuffer(raw) || raw.length === 0) {
+        health?.recordWebhookRejected();
         return res.status(400).json({ error: "empty body" });
       }
       const rawString = raw.toString("utf8");
       if (!verifySignature(webhookSecret, rawString, signature)) {
+        health?.recordWebhookRejected();
         return res.status(401).json({ error: "invalid signature" });
       }
 
@@ -93,15 +140,18 @@ export const createRoutes = ({
       try {
         parsed = JSON.parse(rawString);
       } catch {
+        health?.recordWebhookRejected();
         return res.status(400).json({ error: "invalid json" });
       }
 
       const { event, data } = parsed ?? {};
       if (!event || !data) {
+        health?.recordWebhookRejected();
         return res.status(400).json({ error: "event and data are required" });
       }
 
       sse.broadcast(event, data);
+      health?.recordWebhookOk();
       return res.status(200).json({ ok: true });
     }
   );

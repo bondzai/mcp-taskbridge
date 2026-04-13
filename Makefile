@@ -13,19 +13,34 @@ NPM              ?= npm
 PORT_WEB         ?= 3000
 PORT_MCP_HTTP    ?= 8000
 WEB_HOST         ?= 127.0.0.1
-AGENT_ID         ?= claude-cowork
-SECRET           ?= dev-secret-change-me
+
+# TASKBRIDGE_* variables use `?=` which respects an existing shell env
+# var (make imports env into its variable namespace on reference). That
+# means `TASKBRIDGE_AGENT_ID=codex make web` actually works — a previous
+# version of this Makefile used an intermediate `AGENT_ID` variable and
+# force-exported its value, which silently clobbered the shell's choice.
+TASKBRIDGE_AGENT_ID       ?= generic
+TASKBRIDGE_WEBHOOK_SECRET ?= dev-secret-change-me
 
 MCP_BIN          := $(abspath bin/mcp.js)
 TESTS            := tests/*.test.js
 WEBHOOK_URL      := http://$(WEB_HOST):$(PORT_WEB)/webhooks/task-events
 
-# Exported so every recipe (and sub-shells) sees the same config.
-export TASKBRIDGE_AGENT_ID       = $(AGENT_ID)
-export TASKBRIDGE_WEBHOOK_SECRET = $(SECRET)
-export TASKBRIDGE_WEBHOOK_URL    = $(WEBHOOK_URL)
-export TASKBRIDGE_WEB_HOST       = $(WEB_HOST)
-export TASKBRIDGE_WEB_PORT       = $(PORT_WEB)
+# MCP client integrations (auto-detected when present)
+CODEX_BIN        ?= $(shell command -v codex 2>/dev/null || echo /Applications/Codex.app/Contents/Resources/codex)
+ANTIGRAVITY_CFG  ?= $(HOME)/Library/Application Support/Antigravity/User/mcp.json
+NODE_BIN         := $(shell command -v $(NODE))
+
+# Re-export so every recipe (and sub-shells) sees the resolved values.
+export TASKBRIDGE_AGENT_ID
+export TASKBRIDGE_WEBHOOK_SECRET
+export TASKBRIDGE_WEBHOOK_URL    := $(WEBHOOK_URL)
+export TASKBRIDGE_WEB_HOST       := $(WEB_HOST)
+export TASKBRIDGE_WEB_PORT       := $(PORT_WEB)
+
+# Back-compat aliases for existing targets that still reference them.
+AGENT_ID := $(TASKBRIDGE_AGENT_ID)
+SECRET   := $(TASKBRIDGE_WEBHOOK_SECRET)
 
 .DEFAULT_GOAL := help
 
@@ -119,7 +134,8 @@ smoke: ## Probe the web server (requires: make web running)
 	@curl -sSf -o /dev/null http://127.0.0.1:$(PORT_WEB)/api/tasks
 	@curl -sSf -o /dev/null http://127.0.0.1:$(PORT_WEB)/api/config
 	@curl -sSf -o /dev/null http://127.0.0.1:$(PORT_WEB)/api/changelog
-	@echo "✓ web responding on :$(PORT_WEB) (tasks, config, changelog)"
+	@curl -sSf -o /dev/null http://127.0.0.1:$(PORT_WEB)/api/health
+	@echo "✓ web responding on :$(PORT_WEB) (tasks, config, changelog, health)"
 
 .PHONY: smoke-mcp
 smoke-mcp: ## Probe the supergateway /mcp endpoint (requires: make supergateway running)
@@ -130,6 +146,53 @@ smoke-mcp: ## Probe the supergateway /mcp endpoint (requires: make supergateway 
 	  | head -c 400
 	@echo
 	@echo "✓ mcp responding on :$(PORT_MCP_HTTP)"
+
+# ============================================================
+# MCP client integrations
+# ============================================================
+
+.PHONY: mcp-register-codex
+mcp-register-codex: ## Register taskbridge with OpenAI Codex (edits ~/.codex/config.toml)
+	@test -x "$(CODEX_BIN)" || { echo "✗ codex binary not found at $(CODEX_BIN)"; exit 1; }
+	"$(CODEX_BIN)" mcp add taskbridge \
+	  --env TASKBRIDGE_AGENT_ID=codex \
+	  --env TASKBRIDGE_WEBHOOK_SECRET=$(SECRET) \
+	  --env TASKBRIDGE_WEBHOOK_URL=$(WEBHOOK_URL) \
+	  -- $(NODE_BIN) $(MCP_BIN)
+	@echo "✓ taskbridge registered. Verify with: make mcp-list-codex"
+
+.PHONY: mcp-list-codex
+mcp-list-codex: ## List MCP servers registered with Codex
+	@test -x "$(CODEX_BIN)" || { echo "✗ codex binary not found at $(CODEX_BIN)"; exit 1; }
+	"$(CODEX_BIN)" mcp list
+
+.PHONY: mcp-unregister-codex
+mcp-unregister-codex: ## Remove taskbridge from Codex
+	@test -x "$(CODEX_BIN)" || { echo "✗ codex binary not found at $(CODEX_BIN)"; exit 1; }
+	"$(CODEX_BIN)" mcp remove taskbridge
+	@echo "✓ taskbridge removed from Codex"
+
+.PHONY: mcp-register-antigravity
+mcp-register-antigravity: ## Print the mcp.json snippet to paste into Antigravity
+	@printf '\n%s\n' "Antigravity uses VS Code-style MCP config. Paste the JSON below into:"
+	@printf '  %s\n\n' "$(ANTIGRAVITY_CFG)"
+	@printf '%s\n' "If the file already exists, merge the \"servers.taskbridge\" entry into it."
+	@printf '%s\n\n' "After saving, fully quit and relaunch Antigravity (⌘Q, not just close the window)."
+	@printf '%s\n' '{'
+	@printf '%s\n' '  "servers": {'
+	@printf '%s\n' '    "taskbridge": {'
+	@printf '%s\n' '      "type": "stdio",'
+	@printf '      "command": "%s",\n' "$(NODE_BIN)"
+	@printf '      "args": ["%s"],\n' "$(MCP_BIN)"
+	@printf '%s\n' '      "env": {'
+	@printf '        "TASKBRIDGE_AGENT_ID": "antigravity",\n'
+	@printf '        "TASKBRIDGE_WEBHOOK_SECRET": "%s",\n' "$(SECRET)"
+	@printf '        "TASKBRIDGE_WEBHOOK_URL": "%s"\n' "$(WEBHOOK_URL)"
+	@printf '%s\n' '      }'
+	@printf '%s\n' '    }'
+	@printf '%s\n' '  }'
+	@printf '%s\n' '}'
+	@printf '\nOr: open the Antigravity command palette → "MCP: Add Server…" → "Command (stdio)" and point it at %s\n\n' "$(MCP_BIN)"
 
 # ============================================================
 # Maintenance

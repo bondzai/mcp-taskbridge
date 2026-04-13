@@ -13,6 +13,9 @@
                                           │  GET  /api/tasks          │
                                           │  GET  /api/tasks/:id      │
                                           │  GET  /api/events (SSE)   │
+                                          │  GET  /api/config         │
+                                          │  GET  /api/changelog      │
+                                          │  GET  /api/health         │
                                           │  POST /webhooks/task-events
                                           └────────────┬──────────────┘
                                                        │
@@ -35,9 +38,9 @@
 
 Two independent Node processes share one SQLite file:
 
-| Process     | Entrypoint    | Started by                      | Purpose                                                                                     |
-|-------------|---------------|---------------------------------|---------------------------------------------------------------------------------------------|
-| Web server  | `bin/web.js`  | You (`npm run start:web`)       | Serves UI, REST API, SSE stream, and webhook receiver.                                      |
+| Process     | Entrypoint    | Started by                        | Purpose                                                                                    |
+|-------------|---------------|-----------------------------------|--------------------------------------------------------------------------------------------|
+| Web server  | `bin/web.js`  | You (`make web` / `npm run start:web`) | Serves UI, REST API, SSE stream, and webhook receiver.                                |
 | MCP server  | `bin/mcp.js`  | The MCP client (stdio subprocess) | Exposes 6 MCP tools. On every state change, POSTs a signed webhook back to the web server. |
 
 SQLite (WAL mode) is the **single source of truth**. Both processes read and write concurrently with no application-level coordination — the SQL `WHERE status = ...` clauses guard all transitions atomically.
@@ -51,15 +54,26 @@ src/
 │   ├── repo.js          ← raw CRUD, one prepared statement per op
 │   ├── service.js       ← validation, state transitions, typed errors, emits events
 │   ├── events.js        ← in-process pub/sub bus (EventBus)
+│   ├── health.js        ← runtime metrics tracker (powers /api/health + /status.html)
 │   └── status.js        ← TaskStatus enum
 ├── adapters.js          ← per-agent claim instructions
 │                          (claude-desktop / claude-code / claude-cowork / generic)
 ├── transport/
 │   ├── http/
-│   │   ├── app.js       ← createApp({ service, events, webhookSecret })
-│   │   ├── routes.js    ← REST + SSE + webhook sink
-│   │   ├── sse.js       ← createSseBroadcaster()
-│   │   └── public/      ← static UI (index.html)
+│   │   ├── app.js       ← createApp({ service, events, webhookSecret, publicConfig, projectRoot, repo, health })
+│   │   ├── routes.js    ← REST + SSE + webhook sink + /api/config + /api/changelog + /api/health
+│   │   ├── sse.js       ← createSseBroadcaster() + size()
+│   │   └── public/      ← Bootstrap 5 UI
+│   │       ├── index.html       ← tasks dashboard
+│   │       ├── settings.html    ← settings page
+│   │       ├── status.html      ← system status page (live /api/health)
+│   │       └── assets/
+│   │           ├── app.css      ← shared styles + 3 themes (light/dark/dim)
+│   │           ├── chrome.js    ← navbar, theme switcher, changelog modal, prompt library modal
+│   │           ├── tasks.js     ← dashboard logic (search/filter/sort/pagination/markdown toggle)
+│   │           ├── settings.js  ← settings page logic
+│   │           ├── status.js    ← status page (polls /api/health, renders cards)
+│   │           └── prompts.js   ← prompt templates + copy-to-clipboard helper
 │   └── mcp/
 │       ├── server.js    ← createMcpServer / startStdioMcpServer
 │       └── tools.js     ← createToolHandlers + tool definitions (zod schemas)

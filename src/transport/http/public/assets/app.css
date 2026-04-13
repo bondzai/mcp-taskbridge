@@ -812,6 +812,120 @@ html[data-theme="dim"] .tb-pill-failed {
   }
 }
 
+/* ---------- Status page ---------- */
+
+.tb-status-banner {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  padding: 1rem 1.25rem;
+  border: 1px solid var(--tb-border);
+  border-radius: var(--tb-radius);
+  background: var(--tb-surface);
+  margin-bottom: 1rem;
+}
+.tb-status-banner .bi { font-size: 1.75rem; line-height: 1; }
+.tb-status-banner-title { font-weight: 600; color: var(--bs-emphasis-color); }
+.tb-status-banner-note  { font-size: 0.85rem; color: var(--tb-muted); }
+
+.tb-status-banner-ok      { border-color: rgba(87, 171, 90, 0.45); background: rgba(87, 171, 90, 0.07); }
+.tb-status-banner-ok .bi  { color: #57ab5a; }
+.tb-status-banner-warn    { border-color: rgba(218, 170, 63, 0.45); background: rgba(218, 170, 63, 0.07); }
+.tb-status-banner-warn .bi{ color: #daaa3f; }
+.tb-status-banner-bad     { border-color: rgba(229, 83, 75, 0.5); background: rgba(229, 83, 75, 0.08); }
+.tb-status-banner-bad .bi { color: #e5534b; }
+.tb-status-banner-unknown .bi { color: var(--tb-muted); }
+
+.tb-status-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.tb-status-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 0.75rem;
+}
+
+.tb-status-section-title {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--tb-muted);
+  margin: 0.5rem 0 0.4rem;
+}
+
+.tb-status-card {
+  background: var(--tb-surface);
+  border: 1px solid var(--tb-border);
+  border-radius: var(--tb-radius);
+  padding: 0.9rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.tb-status-card header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--bs-emphasis-color);
+}
+.tb-status-card dl {
+  margin: 0;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  row-gap: 0.25rem;
+  column-gap: 0.75rem;
+  font-size: 0.85rem;
+}
+.tb-status-card dl > div { display: contents; }
+.tb-status-card dt { color: var(--tb-muted); font-weight: 400; }
+.tb-status-card dd {
+  margin: 0;
+  text-align: right;
+  font-family: var(--tb-mono);
+  color: var(--bs-body-color);
+  word-break: break-word;
+}
+.tb-status-card .tb-status-blurb {
+  margin: 0.25rem 0 0;
+  font-size: 0.78rem;
+  color: var(--tb-muted);
+  line-height: 1.45;
+}
+
+.tb-status-tag {
+  font-size: 0.68rem;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  background: var(--tb-surface-alt);
+  border: 1px solid var(--tb-border);
+  color: var(--tb-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-left: auto;
+}
+
+.tb-status-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.tb-dot {
+  width: 0.6rem;
+  height: 0.6rem;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+.tb-dot-ok      { background: #57ab5a; box-shadow: 0 0 0 3px rgba(87, 171, 90, 0.18); }
+.tb-dot-warn    { background: #daaa3f; box-shadow: 0 0 0 3px rgba(218, 170, 63, 0.18); }
+.tb-dot-bad     { background: #e5534b; box-shadow: 0 0 0 3px rgba(229, 83, 75, 0.18); }
+.tb-dot-unknown { background: var(--tb-muted); box-shadow: 0 0 0 3px rgba(128, 128, 128, 0.15); }
+
 /* ---------- Bootstrap modal polish for dim/dark ---------- */
 .modal-content {
   background: var(--tb-surface);

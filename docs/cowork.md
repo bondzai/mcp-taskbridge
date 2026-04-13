@@ -52,12 +52,20 @@ node --test --test-concurrency=1 tests/*.test.js    # expect 72 / 72 green
 ### 1. Terminal A — web server
 
 ```bash
-TASKBRIDGE_WEBHOOK_SECRET=dev-secret-change-me npm run start:web
+TASKBRIDGE_WEBHOOK_SECRET=dev-secret-change-me make web
 ```
 
 Listens on `http://127.0.0.1:3000`. Leave it running. Submit one or two tasks from the browser so the MCP side has work to pick up.
 
 ### 2. Terminal B — supergateway (stdio → streamable HTTP)
+
+Fast path — one target does it all:
+
+```bash
+make supergateway
+```
+
+That expands to the full command below (exported env vars come from the Makefile so the two processes share one secret):
 
 ```bash
 TASKBRIDGE_AGENT_ID=claude-cowork \
@@ -86,7 +94,7 @@ Startup log should end with:
 
 ```bash
 brew install cloudflared    # one-time
-cloudflared tunnel --url http://127.0.0.1:8000
+make tunnel                 # cloudflared tunnel --url http://127.0.0.1:8000
 ```
 
 Cloudflared prints a `https://<random>.trycloudflare.com` URL. **Append `/mcp`** to that URL — this full path is what Cowork needs.
@@ -181,7 +189,7 @@ For pure end-to-end validation of the bridge, **Claude Desktop is faster to set 
   "mcpServers": {
     "taskbridge": {
       "command": "node",
-      "args": ["/Users/jamesbond/Desktop/claude-taskbridge/bin/mcp.js"],
+      "args": ["/Users/jamesbond/Desktop/mcp-taskbridge/bin/mcp.js"],
       "env": {
         "TASKBRIDGE_AGENT_ID": "claude-desktop",
         "TASKBRIDGE_WEBHOOK_SECRET": "dev-secret-change-me"

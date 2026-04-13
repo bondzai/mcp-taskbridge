@@ -69,6 +69,8 @@ export const createTasksRepository = (db) => {
            updated_at = @now
      WHERE id = @id AND status = 'in_progress'
   `);
+  const countRows = db.prepare(`SELECT status, COUNT(*) as n FROM tasks GROUP BY status`);
+  const pragmaJournalMode = db.prepare(`PRAGMA journal_mode`);
 
   const now = () => Date.now();
 
@@ -110,6 +112,18 @@ export const createTasksRepository = (db) => {
       const info = progress.run({ id, message, now: now() });
       if (info.changes === 0) return null;
       return rowToTask(selectById.get(id));
+    },
+    countByStatus() {
+      const out = { total: 0, pending: 0, in_progress: 0, done: 0, failed: 0 };
+      for (const row of countRows.all()) {
+        if (row.status in out) out[row.status] = row.n;
+        out.total += row.n;
+      }
+      return out;
+    },
+    journalMode() {
+      const row = pragmaJournalMode.get();
+      return row?.journal_mode ?? null;
     },
   };
 };

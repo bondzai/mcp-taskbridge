@@ -10,13 +10,20 @@ import { signPayload } from "../src/webhook/signer.js";
 
 const SECRET = "test-secret";
 
-const buildApp = () => {
+const buildApp = ({ withRepo = false, publicConfig = {}, externalChecks } = {}) => {
   const db = openDatabase(":memory:");
   const repo = createTasksRepository(db);
   const events = createEventBus();
   const service = createTaskService({ repo, events });
-  const { app, sse } = createApp({ service, webhookSecret: SECRET, events });
-  return { app, service, sse, events };
+  const { app, sse, health } = createApp({
+    service,
+    webhookSecret: SECRET,
+    events,
+    ...(withRepo ? { repo } : {}),
+    ...(externalChecks !== undefined ? { externalChecks } : {}),
+    publicConfig,
+  });
+  return { app, service, sse, events, health, repo };
 };
 
 test("POST /api/tasks: creates and returns 201", async () => {
@@ -138,4 +145,79 @@ test("POST /webhooks/task-events: 400 missing event/data", async () => {
     .set("X-Taskbridge-Signature", sig)
     .send(payload);
   assert.equal(res.status, 400);
+});
+
+test("GET /api/health: reports ok, db stats, and sse subscriber count", async () => {
+  const { app, service } = buildApp({ withRepo: true, publicConfig: { version: "test" } });
+  await service.create("one");
+  await service.create("two");
+  const res = await request(app).get("/api/health");
+  assert.equal(res.status, 200);
+  assert.equal(res.body.ok, true);
+  assert.equal(res.body.version, "test");
+  assert.equal(res.body.db.ok, true);
+  assert.equal(res.body.db.tasks.total, 2);
+  assert.equal(res.body.db.tasks.pending, 2);
+  assert.equal(res.body.sse.subscribers, 0);
+  assert.equal(res.body.mcp.status, "unknown"); // no webhook traffic yet
+  assert.ok(res.body.events.totalEmitted >= 2);
+});
+
+test("GET /api/health: webhook counters update on signed delivery", async () => {
+  const { app } = buildApp({ withRepo: true });
+  // Reject one (bad sig), accept one (good sig).
+  const badPayload = JSON.stringify({ event: "task.completed", data: { id: "x" } });
+  await request(app)
+    .post("/webhooks/task-events")
+    .set("Content-Type", "application/json")
+    .set("X-Taskbridge-Signature", "sha256=deadbeef")
+    .send(badPayload);
+
+  const goodPayload = JSON.stringify({ event: "task.completed", data: { id: "x", status: "done" } });
+  const sig = signPayload(SECRET, goodPayload);
+  await request(app)
+    .post("/webhooks/task-events")
+    .set("Content-Type", "application/json")
+    .set("X-Taskbridge-Signature", sig)
+    .send(goodPayload);
+
+  const res = await request(app).get("/api/health");
+  assert.equal(res.status, 200);
+  assert.equal(res.body.webhook.received, 1);
+  assert.equal(res.body.webhook.rejected, 1);
+  assert.ok(res.body.webhook.lastOkAt !== null);
+  assert.ok(res.body.webhook.lastRejectedAt !== null);
+  assert.equal(res.body.mcp.status, "active");
+});
+
+test("GET /api/health: 503 when tracker has no repo wired up", async () => {
+  const { app } = buildApp(); // no repo → db.ok = false
+  const res = await request(app).get("/api/health");
+  assert.equal(res.status, 503);
+  assert.equal(res.body.ok, false);
+  assert.equal(res.body.db.ok, false);
+});
+
+test("GET /api/health: runs external checks when configured", async () => {
+  const stubCheck = {
+    id: "stub",
+    label: "Stub check",
+    kind: "custom",
+    probe: async () => ({ level: "ok", message: "stub ok" }),
+  };
+  const { app } = buildApp({ withRepo: true, externalChecks: [stubCheck] });
+  const res = await request(app).get("/api/health");
+  assert.equal(res.status, 200);
+  assert.ok(Array.isArray(res.body.external));
+  assert.equal(res.body.external.length, 1);
+  assert.equal(res.body.external[0].id, "stub");
+  assert.equal(res.body.external[0].level, "ok");
+  assert.equal(res.body.external[0].message, "stub ok");
+});
+
+test("GET /api/health: external is empty array when no checks configured", async () => {
+  const { app } = buildApp({ withRepo: true }); // default: externalChecks = []
+  const res = await request(app).get("/api/health");
+  assert.equal(res.status, 200);
+  assert.deepEqual(res.body.external, []);
 });

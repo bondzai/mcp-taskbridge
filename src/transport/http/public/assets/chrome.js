@@ -115,6 +115,7 @@ export const renderMarkdown = (text) => {
 
 const NAV_LINKS = [
   { href: "/", label: "Tasks", icon: "bi-list-task", match: ["/", "/index.html"] },
+  { href: "/status.html", label: "Status", icon: "bi-activity", match: ["/status.html"] },
   { href: "/settings.html", label: "Settings", icon: "bi-gear", match: ["/settings.html"] },
 ];
 

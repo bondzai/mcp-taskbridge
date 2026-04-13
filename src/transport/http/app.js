@@ -1,6 +1,7 @@
 import express from "express";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { createHealthTracker } from "../../core/health.js";
 import { createRoutes } from "./routes.js";
 import { createSseBroadcaster } from "./sse.js";
 
@@ -14,6 +15,10 @@ export const createApp = ({
   sse = createSseBroadcaster(),
   publicConfig = {},
   projectRoot = null,
+  repo = null,
+  health = createHealthTracker({ events }),
+  externalChecks = [],
+  mcpHandler = null,
 }) => {
   if (!service) throw new Error("service is required");
   if (!webhookSecret) throw new Error("webhookSecret is required");
@@ -25,7 +30,10 @@ export const createApp = ({
   const app = express();
   app.disable("x-powered-by");
   app.use(express.static(publicDir));
-  app.use(createRoutes({ service, sse, webhookSecret, publicConfig, projectRoot }));
+  app.use(createRoutes({
+    service, sse, webhookSecret, publicConfig, projectRoot, repo, health, externalChecks,
+    mcpHandler,
+  }));
 
-  return { app, sse };
+  return { app, sse, health };
 };

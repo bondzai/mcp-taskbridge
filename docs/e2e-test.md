@@ -3,17 +3,21 @@
 Two paths:
 
 - **Path A** — Browser + HTTP only. No MCP client required. Verifies the web layer, SSE, repo, signer, and webhook round-trip.
-- **Path B** — Browser + a real MCP client (Claude Desktop, Claude Code, Claude Cowork, ...). Verifies the full stdio MCP pipeline.
+- **Path B** — Browser + a real MCP client (Claude Desktop, Claude Code, Claude Cowork, …). Verifies the full stdio MCP pipeline.
 
-Both paths assume the web server is running on `http://127.0.0.1:3000` with the default dev secret `dev-secret-change-me`.
+For a quick one-liner after starting the web server, `make smoke` probes `/api/tasks`, `/api/config`, and `/api/changelog` and fails fast if anything is broken.
 
 ## Prerequisites
 
 ```bash
-npm install
-npm test            # expect 72 / 72 green
-npm run start:web   # starts http://127.0.0.1:3000
+make install   # npm install
+make test      # 72 / 72 green — works on Node 18–24+
+make web       # http://127.0.0.1:3000
 ```
+
+If you just switched Node versions, also run `make rebuild` (`npm rebuild better-sqlite3`) before the tests or you'll see a `NODE_MODULE_VERSION` crash.
+
+> `npm test` (as shipped in `package.json`) breaks on Node 24+ because bare `tests/` is resolved as a module path. `make test` uses an explicit glob (`node --test tests/*.test.js`) and always works. All the steps below assume the web server is running on `http://127.0.0.1:3000` with the default dev secret `dev-secret-change-me`.
 
 Open a second terminal for the `curl` steps.
 
@@ -135,7 +139,7 @@ For **Claude Desktop**, edit `~/Library/Application Support/Claude/claude_deskto
   "mcpServers": {
     "taskbridge": {
       "command": "node",
-      "args": ["/Users/jamesbond/Desktop/claude-taskbridge/bin/mcp.js"],
+      "args": ["/Users/jamesbond/Desktop/mcp-taskbridge/bin/mcp.js"],
       "env": {
         "TASKBRIDGE_AGENT_ID": "claude-desktop",
         "TASKBRIDGE_WEBHOOK_SECRET": "dev-secret-change-me"

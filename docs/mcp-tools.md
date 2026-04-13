@@ -70,7 +70,7 @@ Transition a pending task to `in_progress`. Must be called before `submit_result
 | `task_id`   | string | yes      |                                                                       |
 | `agent_id`  | string | no       | Overrides the default stamped on the task. Max 128 chars, non-empty. |
 
-If `agent_id` is omitted, the task is stamped with the **adapter id** configured via `TASKBRIDGE_AGENT_ID` (e.g. `claude-desktop`, `claude-cowork`, `claude-code`, `generic`). Unknown adapter ids fall back to `generic`.
+If `agent_id` is omitted, the task is stamped with the **adapter id** configured via `TASKBRIDGE_AGENT_ID` (one of `claude-desktop`, `claude-code`, `claude-cowork`, `codex`, `antigravity`, `generic`). Unknown adapter ids fall back to `generic`.
 
 **Output**
 ```json
