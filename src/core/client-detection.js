@@ -179,18 +179,17 @@ export const createClientTracker = ({ fallback = "generic", logger = null } = {}
      *   4. Static fallback.
      */
     resolve(req) {
+      const ua = req?.headers?.["user-agent"] || null;
+      const ip = req?.ip || req?.socket?.remoteAddress || null;
       const cached = cache.get(keyForRequest(req));
       if (cached) return cached;
-      const fromUa = adapterForUserAgent(req?.headers?.["user-agent"]);
+      const fromUa = adapterForUserAgent(ua);
       if (fromUa) {
-        log("info", "mcp client resolved via user-agent", {
-          ua: req?.headers?.["user-agent"],
-          adapterId: fromUa,
-        });
+        log("info", "mcp client resolved via user-agent", { ua, ip, adapterId: fromUa });
         return fromUa;
       }
       if (lastInitAdapter) return lastInitAdapter;
-      log("info", "mcp client fallback", { adapterId: fallback });
+      log("info", "mcp client fallback", { ua, ip, adapterId: fallback });
       return fallback;
     },
   };

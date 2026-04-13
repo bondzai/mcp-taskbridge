@@ -314,6 +314,7 @@ const renderList = () => {
         if (!task) return;
         const text = buildPrompt("solve-this", {
           TASK_ID: task.id,
+          WORKER_ID: "codex", // sensible default; user can edit in the prompt library modal
           PROMPT_PREVIEW: (task.prompt || "").slice(0, 500),
         });
         const ok = await copyToClipboard(text);
@@ -332,6 +333,7 @@ const renderList = () => {
           templateId: "solve-this",
           vars: {
             TASK_ID: id,
+            WORKER_ID: "codex",
             PROMPT_PREVIEW: (task?.prompt || "").slice(0, 500),
           },
         });

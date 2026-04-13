@@ -35,6 +35,31 @@ export const createRoutes = ({
   if (mcpHandler) {
     const mcpJson = express.json({ limit: JSON_LIMIT });
     const wrapped = async (req, res) => {
+      // Trace EVERY /mcp request so future "why was this tagged X?"
+      // questions are answerable from the web server's stderr alone.
+      try {
+        const body = req.body;
+        const bodyMethod = Array.isArray(body)
+          ? body.map((m) => m?.method).filter(Boolean).join(",")
+          : body?.method || null;
+        const clientName = Array.isArray(body)
+          ? (body.find((m) => m?.method === "initialize")?.params?.clientInfo?.name)
+          : (body?.method === "initialize" ? body?.params?.clientInfo?.name : null);
+        process.stderr.write(JSON.stringify({
+          ts: new Date().toISOString(),
+          level: "info",
+          msg: "mcp request",
+          meta: {
+            httpMethod: req.method,
+            bodyMethod,
+            clientName: clientName || null,
+            ua: req.headers["user-agent"] || null,
+            ip: req.ip || req.socket?.remoteAddress || null,
+            contentType: req.headers["content-type"] || null,
+          },
+        }) + "\n");
+      } catch { /* never let logging break the request */ }
+
       try {
         await mcpHandler(req, res);
       } catch (err) {

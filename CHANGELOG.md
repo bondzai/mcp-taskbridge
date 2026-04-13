@@ -5,6 +5,41 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.5.2] — 2026-04-13
+
+### Fixed
+
+- **Codex Desktop tasks were still tagged `generic`** even after the
+  layered detection in 0.5.1 — server logs showed the `mcp client
+  fallback` path firing repeatedly, meaning Codex's requests were
+  reaching `/mcp` but matching neither `clientInfo.name` nor any of
+  the User-Agent regex patterns. The 0.5.1 fallback log was too
+  thin to tell us *what* Codex was sending.
+- **Workaround that always works**: prompt-library templates now
+  include a required `WORKER_ID` variable (default `"codex"`) and
+  every template tells the agent to **always pass `agent_id` to
+  `claim_task` explicitly**. The `agent_id` argument has always
+  been a first-class override that beats every detection layer —
+  so even if auto-detection misses, the badge will still be right.
+- The per-task **Copy AI prompt** button and the **wand icon →
+  prompt library** modal both default `WORKER_ID` to `"codex"` so
+  copy-paste workflows just work without editing.
+
+### Added
+
+- **Per-request `/mcp` trace logging**. Every request to `POST/GET/
+  DELETE /mcp` now emits a structured stderr line:
+  ```
+  {"msg":"mcp request","meta":{"httpMethod","bodyMethod",
+                               "clientName","ua","ip","contentType"}}
+  ```
+  Pre-detection, pre-handler. So the next time a client mismatches
+  detection, you can see the exact `bodyMethod` (initialize / tools/list
+  / tools/call), the exact `clientName` (or null), and the exact
+  `User-Agent` it sent. No more guessing.
+- The existing `mcp client fallback` log line now includes `ua` and
+  `ip` so the same diagnostic info is on the resolution path too.
+
 ## [0.5.1] — 2026-04-13
 
 ### Fixed
