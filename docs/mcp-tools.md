@@ -92,10 +92,14 @@ Mark an `in_progress` task as `done` and deliver the result. Fires `task.complet
 
 **Input**
 
-| Field      | Type   | Required | Notes                                         |
-|------------|--------|----------|-----------------------------------------------|
-| `task_id`  | string | yes      |                                               |
-| `result`   | string | yes      | Final answer for the user. Max 64 000 chars. |
+| Field          | Type    | Required | Notes                                                                    |
+|----------------|---------|----------|--------------------------------------------------------------------------|
+| `task_id`      | string  | yes      |                                                                          |
+| `result`       | string  | yes      | Final answer for the user. Max 64 000 chars.                            |
+| `model`        | string  | no       | Optional. Identifier of the model that produced the result (e.g. `claude-opus-4-6`, `gpt-5`). Max 128 chars. |
+| `tokens_in`    | integer | no       | Optional. Prompt tokens consumed.                                        |
+| `tokens_out`   | integer | no       | Optional. Completion tokens produced.                                    |
+| `total_tokens` | integer | no       | Optional. Defaults to `tokens_in + tokens_out` when both are provided.   |
 
 **Output**
 ```json

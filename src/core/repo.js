@@ -15,6 +15,11 @@ const rowToTask = (row) => {
     updatedAt: row.updated_at,
     claimedAt: row.claimed_at,
     completedAt: row.completed_at,
+    archivedAt: row.archived_at ?? null,
+    model: row.model ?? null,
+    tokensIn: row.tokens_in ?? null,
+    tokensOut: row.tokens_out ?? null,
+    totalTokens: row.total_tokens ?? null,
   };
 };
 
@@ -25,19 +30,27 @@ export const createTasksRepository = (db) => {
   `);
   const selectById = db.prepare(`SELECT * FROM tasks WHERE id = ?`);
   const selectPending = db.prepare(`
-    SELECT * FROM tasks WHERE status = 'pending'
-    ORDER BY created_at ASC
-    LIMIT ?
-  `);
-  const selectAll = db.prepare(`
     SELECT * FROM tasks
-    ORDER BY created_at DESC
-    LIMIT ?
+     WHERE status = 'pending' AND archived_at IS NULL
+     ORDER BY created_at ASC
+     LIMIT ?
+  `);
+  const selectAllActive = db.prepare(`
+    SELECT * FROM tasks
+     WHERE archived_at IS NULL
+     ORDER BY created_at DESC
+     LIMIT ?
+  `);
+  const selectAllIncludingArchived = db.prepare(`
+    SELECT * FROM tasks
+     ORDER BY created_at DESC
+     LIMIT ?
   `);
   const selectByAgent = db.prepare(`
-    SELECT * FROM tasks WHERE agent_id = ?
-    ORDER BY created_at DESC
-    LIMIT ?
+    SELECT * FROM tasks
+     WHERE agent_id = ? AND archived_at IS NULL
+     ORDER BY created_at DESC
+     LIMIT ?
   `);
   const claim = db.prepare(`
     UPDATE tasks
@@ -51,10 +64,33 @@ export const createTasksRepository = (db) => {
     UPDATE tasks
        SET status = 'done',
            result = @result,
+           model = COALESCE(@model, model),
+           tokens_in = COALESCE(@tokensIn, tokens_in),
+           tokens_out = COALESCE(@tokensOut, tokens_out),
+           total_tokens = COALESCE(@totalTokens, total_tokens),
            completed_at = @now,
            updated_at = @now
      WHERE id = @id AND status = 'in_progress'
   `);
+  const updatePrompt = db.prepare(`
+    UPDATE tasks
+       SET prompt = @prompt,
+           updated_at = @now
+     WHERE id = @id AND status = 'pending' AND archived_at IS NULL
+  `);
+  const archiveStmt = db.prepare(`
+    UPDATE tasks
+       SET archived_at = @now,
+           updated_at = @now
+     WHERE id = @id AND archived_at IS NULL
+  `);
+  const unarchiveStmt = db.prepare(`
+    UPDATE tasks
+       SET archived_at = NULL,
+           updated_at = @now
+     WHERE id = @id AND archived_at IS NOT NULL
+  `);
+  const deleteStmt = db.prepare(`DELETE FROM tasks WHERE id = ?`);
   const fail = db.prepare(`
     UPDATE tasks
        SET status = 'failed',
@@ -87,8 +123,9 @@ export const createTasksRepository = (db) => {
     listPending(limit) {
       return selectPending.all(limit).map(rowToTask);
     },
-    listAll(limit) {
-      return selectAll.all(limit).map(rowToTask);
+    listAll(limit, { includeArchived = false } = {}) {
+      const stmt = includeArchived ? selectAllIncludingArchived : selectAllActive;
+      return stmt.all(limit).map(rowToTask);
     },
     listByAgent(agentId, limit) {
       return selectByAgent.all(agentId, limit).map(rowToTask);
@@ -98,10 +135,37 @@ export const createTasksRepository = (db) => {
       if (info.changes === 0) return null;
       return rowToTask(selectById.get(id));
     },
-    complete(id, result) {
-      const info = complete.run({ id, result, now: now() });
+    complete(id, result, metadata = {}) {
+      const info = complete.run({
+        id,
+        result,
+        now: now(),
+        model: metadata.model ?? null,
+        tokensIn: metadata.tokensIn ?? null,
+        tokensOut: metadata.tokensOut ?? null,
+        totalTokens: metadata.totalTokens ?? null,
+      });
       if (info.changes === 0) return null;
       return rowToTask(selectById.get(id));
+    },
+    updatePrompt(id, prompt) {
+      const info = updatePrompt.run({ id, prompt, now: now() });
+      if (info.changes === 0) return null;
+      return rowToTask(selectById.get(id));
+    },
+    archive(id) {
+      const info = archiveStmt.run({ id, now: now() });
+      if (info.changes === 0) return null;
+      return rowToTask(selectById.get(id));
+    },
+    unarchive(id) {
+      const info = unarchiveStmt.run({ id, now: now() });
+      if (info.changes === 0) return null;
+      return rowToTask(selectById.get(id));
+    },
+    delete(id) {
+      const info = deleteStmt.run(id);
+      return info.changes > 0;
     },
     fail(id, error) {
       const info = fail.run({ id, error, now: now() });

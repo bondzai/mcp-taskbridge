@@ -4,6 +4,10 @@ export const TaskEvents = Object.freeze({
   PROGRESS: "task.progress",
   COMPLETED: "task.completed",
   FAILED: "task.failed",
+  UPDATED: "task.updated",
+  ARCHIVED: "task.archived",
+  UNARCHIVED: "task.unarchived",
+  DELETED: "task.deleted",
 });
 
 export const createEventBus = () => {

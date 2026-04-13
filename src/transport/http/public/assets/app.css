@@ -376,6 +376,33 @@ html[data-theme="dim"] .tb-pill-failed {
   border-color: rgba(229, 83, 75, 0.35);
 }
 
+.tb-pill-archived {
+  color: var(--tb-muted);
+  background: var(--tb-surface-alt);
+  border-color: var(--tb-border);
+}
+
+.tb-task-archived .accordion-button {
+  opacity: 0.65;
+}
+
+.tb-task-archived .accordion-button:not(.collapsed) {
+  opacity: 1;
+}
+
+.tb-edit-textarea {
+  font-family: var(--tb-sans);
+  resize: vertical;
+  min-height: 110px;
+}
+
+.tb-run-details dt {
+  font-size: 0.7rem;
+}
+.tb-run-details dd {
+  font-size: 0.82rem;
+}
+
 .tb-agent-badge {
   display: inline-flex;
   align-items: center;

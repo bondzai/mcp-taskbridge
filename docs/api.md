@@ -78,18 +78,74 @@ Fetch a single task.
 
 ---
 
+## `PATCH /api/tasks/:id`
+
+Update a task's prompt. Only allowed while `status === pending` and the task is
+not archived; once a task is claimed the prompt is locked (it's the contract
+with whichever agent picked it up).
+
+**Request**
+```http
+PATCH /api/tasks/<id>
+Content-Type: application/json
+
+{ "prompt": "new prompt text" }
+```
+
+**Responses**
+- `200` — updated full task object, emits `task.updated`
+- `400 VALIDATION` — missing / empty / oversize prompt
+- `404 NOT_FOUND` — id not in DB
+- `409 CONFLICT` — task is no longer `pending`, or is archived
+
+---
+
+## `POST /api/tasks/:id/archive` · `POST /api/tasks/:id/unarchive`
+
+Soft-delete a task. Archived tasks are hidden from the default `GET /api/tasks`
+response unless `?include_archived=true` is passed. Reachable by id at all times.
+Both endpoints are **idempotent**: archiving an already-archived task (or
+unarchiving an active one) returns the current state without throwing.
+
+**Responses**
+- `200` — full task object with `archivedAt` set / cleared
+- `404 NOT_FOUND` — id not in DB
+
+Emits `task.archived` / `task.unarchived` on the event bus.
+
+---
+
+## `DELETE /api/tasks/:id`
+
+Hard-delete a task. The row is removed from SQLite. **Not reversible.**
+For a reversible "delete", use archive instead.
+
+**Response**
+```json
+{ "id": "<id>", "deleted": true }
+```
+
+- `200` — deleted, emits `task.deleted` (payload is `{ id }`)
+- `404 NOT_FOUND` — id not in DB
+
+---
+
 ## `GET /api/events`
 
 Server-sent event stream. Clients receive named events with JSON data:
 
-| Event            | Emitted by                            | Data       |
-|------------------|---------------------------------------|------------|
-| `ready`          | Stream opens                          | `{ "ok": true }` |
-| `task.created`   | `POST /api/tasks`                     | full task  |
-| `task.claimed`   | MCP `claim_task` → signed webhook     | full task  |
-| `task.progress`  | MCP `report_progress` → signed webhook| full task  |
-| `task.completed` | MCP `submit_result` → signed webhook  | full task  |
-| `task.failed`    | MCP `fail_task` → signed webhook      | full task  |
+| Event              | Emitted by                                       | Data        |
+|--------------------|--------------------------------------------------|-------------|
+| `ready`            | Stream opens                                     | `{ "ok": true }` |
+| `task.created`     | `POST /api/tasks`                                | full task   |
+| `task.claimed`     | MCP `claim_task` → in-process bus / webhook      | full task   |
+| `task.progress`    | MCP `report_progress` → in-process bus / webhook | full task   |
+| `task.completed`   | MCP `submit_result` → in-process bus / webhook   | full task   |
+| `task.failed`      | MCP `fail_task` → in-process bus / webhook       | full task   |
+| `task.updated`     | `PATCH /api/tasks/:id`                           | full task   |
+| `task.archived`    | `POST /api/tasks/:id/archive`                    | full task   |
+| `task.unarchived`  | `POST /api/tasks/:id/unarchive`                  | full task   |
+| `task.deleted`     | `DELETE /api/tasks/:id`                          | `{ id }`    |
 
 Browser example:
 

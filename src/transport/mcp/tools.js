@@ -41,8 +41,13 @@ export const createToolHandlers = ({ service, adapterId }) => {
       const claimed = await service.claim(task_id, agent_id ?? agentForClaim);
       return { task: claimed, instructions: adapter.instructions };
     }),
-    submitResult: wrap(async ({ task_id, result }) => {
-      const done = await service.complete(task_id, result);
+    submitResult: wrap(async ({ task_id, result, model, tokens_in, tokens_out, total_tokens }) => {
+      const done = await service.complete(task_id, result, {
+        model,
+        tokensIn: tokens_in,
+        tokensOut: tokens_out,
+        totalTokens: total_tokens,
+      });
       return { ok: true, task: done };
     }),
     failTask: wrap(async ({ task_id, reason }) => {
@@ -101,10 +106,21 @@ export const toolDefinitions = (handlers) => [
       title: "Submit Result",
       description:
         "Mark an in_progress task as done and deliver the result. " +
-        "This fires the task.completed webhook back to the web server.",
+        "This fires the task.completed event. Optionally include the model " +
+        "name and token usage (tokens_in / tokens_out / total_tokens) so the " +
+        "submitter can see how much it cost — clients should pass these when " +
+        "the underlying LLM exposes usage metadata.",
       inputSchema: {
         task_id: z.string().describe("Task id"),
         result: z.string().describe("Final result text for the user"),
+        model: z.string().max(128).optional()
+          .describe("Optional: model identifier used to produce the result (e.g. 'claude-opus-4-6', 'gpt-5')."),
+        tokens_in: z.number().int().nonnegative().optional()
+          .describe("Optional: prompt tokens consumed."),
+        tokens_out: z.number().int().nonnegative().optional()
+          .describe("Optional: completion tokens produced."),
+        total_tokens: z.number().int().nonnegative().optional()
+          .describe("Optional: total tokens. Defaults to tokens_in + tokens_out if both are provided."),
       },
     },
     run: (args) => handlers.submitResult(args),

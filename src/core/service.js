@@ -6,6 +6,39 @@ const MAX_RESULT_LEN = 64_000;
 const MAX_PROGRESS_LEN = 2_000;
 const MAX_REASON_LEN = 2_000;
 const MAX_AGENT_LEN = 128;
+const MAX_MODEL_LEN = 128;
+const MAX_TOKENS = 100_000_000;
+
+const cleanModel = (value) => {
+  if (value == null) return null;
+  if (typeof value !== "string") throw new ValidationError("model must be a string");
+  const trimmed = value.trim();
+  if (trimmed === "") return null;
+  if (trimmed.length > MAX_MODEL_LEN) throw new ValidationError(`model exceeds ${MAX_MODEL_LEN} chars`);
+  return trimmed;
+};
+
+const cleanTokenCount = (value, field) => {
+  if (value == null) return null;
+  if (typeof value !== "number" || !Number.isFinite(value) || !Number.isInteger(value)) {
+    throw new ValidationError(`${field} must be an integer`);
+  }
+  if (value < 0) throw new ValidationError(`${field} must be non-negative`);
+  if (value > MAX_TOKENS) throw new ValidationError(`${field} exceeds ${MAX_TOKENS}`);
+  return value;
+};
+
+const cleanCompleteMetadata = (raw) => {
+  if (!raw || typeof raw !== "object") return {};
+  const model = cleanModel(raw.model);
+  const tokensIn = cleanTokenCount(raw.tokensIn, "tokens_in");
+  const tokensOut = cleanTokenCount(raw.tokensOut, "tokens_out");
+  let totalTokens = cleanTokenCount(raw.totalTokens, "total_tokens");
+  if (totalTokens == null && tokensIn != null && tokensOut != null) {
+    totalTokens = tokensIn + tokensOut;
+  }
+  return { model, tokensIn, tokensOut, totalTokens };
+};
 
 const requireNonEmptyString = (value, field, max) => {
   if (typeof value !== "string") throw new ValidationError(`${field} must be a string`);
@@ -76,8 +109,8 @@ export const createTaskService = ({ repo, events }) => {
       return repo.listPending(clampLimit(limit, 20, 50));
     },
 
-    listAll(limit) {
-      return repo.listAll(clampLimit(limit, 100, 500));
+    listAll(limit, opts = {}) {
+      return repo.listAll(clampLimit(limit, 100, 500), opts);
     },
 
     listByAgent(agentId, limit) {
@@ -98,16 +131,63 @@ export const createTaskService = ({ repo, events }) => {
       return claimed;
     },
 
-    async complete(id, result) {
+    async complete(id, result, metadata) {
       const cleaned = requireNonEmptyString(result, "result", MAX_RESULT_LEN);
+      const cleanedMeta = cleanCompleteMetadata(metadata);
       const existing = mustExist(id);
       if (existing.status !== TaskStatus.IN_PROGRESS) {
         throw new ConflictError(`task ${id} is ${existing.status}, cannot complete`);
       }
-      const done = repo.complete(id, cleaned);
+      const done = repo.complete(id, cleaned, cleanedMeta);
       if (!done) throw new ConflictError(`task ${id} could not be completed`);
       await emit(TaskEvents.COMPLETED, done);
       return done;
+    },
+
+    async updatePrompt(id, prompt) {
+      const cleaned = requireNonEmptyString(prompt, "prompt", MAX_PROMPT_LEN);
+      const existing = mustExist(id);
+      if (existing.archivedAt != null) {
+        throw new ConflictError(`task ${id} is archived, cannot update`);
+      }
+      if (existing.status !== TaskStatus.PENDING) {
+        throw new ConflictError(`task ${id} is ${existing.status}, prompt is locked`);
+      }
+      const updated = repo.updatePrompt(id, cleaned);
+      if (!updated) throw new ConflictError(`task ${id} could not be updated`);
+      await emit(TaskEvents.UPDATED, updated);
+      return updated;
+    },
+
+    async archive(id) {
+      const existing = mustExist(id);
+      if (existing.archivedAt != null) {
+        return existing; // idempotent
+      }
+      const archived = repo.archive(id);
+      if (!archived) throw new ConflictError(`task ${id} could not be archived`);
+      await emit(TaskEvents.ARCHIVED, archived);
+      return archived;
+    },
+
+    async unarchive(id) {
+      const existing = mustExist(id);
+      if (existing.archivedAt == null) {
+        return existing; // idempotent
+      }
+      const unarchived = repo.unarchive(id);
+      if (!unarchived) throw new ConflictError(`task ${id} could not be unarchived`);
+      await emit(TaskEvents.UNARCHIVED, unarchived);
+      return unarchived;
+    },
+
+    async delete(id) {
+      const existing = mustExist(id);
+      const ok = repo.delete(id);
+      if (!ok) throw new ConflictError(`task ${id} could not be deleted`);
+      // Emit a minimal payload — the row is gone, so tell subscribers just the id.
+      await emit(TaskEvents.DELETED, { id: existing.id });
+      return { id: existing.id, deleted: true };
     },
 
     async fail(id, reason) {

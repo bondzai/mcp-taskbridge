@@ -105,12 +105,49 @@ export const createRoutes = ({
 
   router.get("/api/tasks", (req, res) => {
     const limit = Number(req.query.limit) || undefined;
-    return res.json({ tasks: service.listAll(limit) });
+    const includeArchived = req.query.include_archived === "true" || req.query.include_archived === "1";
+    return res.json({ tasks: service.listAll(limit, { includeArchived }) });
   });
 
   router.get("/api/tasks/:id", (req, res) => {
     try {
       return res.json(service.get(req.params.id));
+    } catch (err) {
+      return sendError(res, err);
+    }
+  });
+
+  router.patch("/api/tasks/:id", express.json({ limit: JSON_LIMIT }), async (req, res) => {
+    try {
+      const updated = await service.updatePrompt(req.params.id, req.body?.prompt);
+      return res.json(updated);
+    } catch (err) {
+      return sendError(res, err);
+    }
+  });
+
+  router.post("/api/tasks/:id/archive", async (req, res) => {
+    try {
+      const archived = await service.archive(req.params.id);
+      return res.json(archived);
+    } catch (err) {
+      return sendError(res, err);
+    }
+  });
+
+  router.post("/api/tasks/:id/unarchive", async (req, res) => {
+    try {
+      const unarchived = await service.unarchive(req.params.id);
+      return res.json(unarchived);
+    } catch (err) {
+      return sendError(res, err);
+    }
+  });
+
+  router.delete("/api/tasks/:id", async (req, res) => {
+    try {
+      const result = await service.delete(req.params.id);
+      return res.json(result);
     } catch (err) {
       return sendError(res, err);
     }

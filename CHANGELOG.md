@@ -5,6 +5,67 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.5.0] — 2026-04-13
+
+### Added
+
+- **Task lifecycle management — update / archive / unarchive / delete**:
+  - `PATCH /api/tasks/:id` updates the prompt while a task is still
+    `pending`. Once claimed, the prompt is locked.
+  - `POST /api/tasks/:id/archive` and `POST /api/tasks/:id/unarchive`
+    soft-delete and restore. Archived tasks are hidden from the default
+    `GET /api/tasks` response unless `?include_archived=true` is passed.
+    Both endpoints are idempotent.
+  - `DELETE /api/tasks/:id` hard-deletes. Use archive for reversible
+    removal.
+  - New SSE event types: `task.updated`, `task.archived`,
+    `task.unarchived`, `task.deleted`.
+- **Per-task action buttons** in the dashboard accordion:
+  Edit (only while pending — opens an inline textarea + Save / Cancel),
+  Archive (Bootstrap toast + the card hides unless "Show archived" is
+  toggled), Delete (browser confirm prompt then hard-delete via SSE
+  fanout, the card vanishes from the UI in real time across every open
+  browser tab).
+- **"Show archived" toggle** in the toolbar — re-fetches the list with
+  `?include_archived=true` so archived items reappear with an
+  Unarchive button. Each archived row gets a low-opacity treatment
+  and an "archived" pill alongside its status.
+- **Run details section** in each task body — shown when any of model,
+  tokens, or processing-time data is available:
+  - **Processing time** is a derived field — no new column. Computed
+    from existing timestamps as **time waiting** (`claimedAt − createdAt`),
+    **time working** (`completedAt − claimedAt`), and **total elapsed**
+    (`completedAt − createdAt`). Formatted as `123 ms` / `4.2 s` /
+    `2m 14s` / `1h 3m 12s` depending on magnitude.
+  - **Model** + **tokens** (in / out / total) are surfaced when the
+    MCP client passes them on `submit_result`. Optional — if a client
+    doesn't supply them, the section quietly hides.
+- **`submit_result` MCP tool extended** with four optional fields:
+  `model`, `tokens_in`, `tokens_out`, `total_tokens`. `total_tokens`
+  is auto-computed from `tokens_in + tokens_out` when both are set
+  but the client omits it. All four pass through validation
+  (non-negative integers, length-capped model string).
+- **Schema migration** in `src/core/db.js` — additive, idempotent
+  `ALTER TABLE ADD COLUMN` for `archived_at`, `model`, `tokens_in`,
+  `tokens_out`, `total_tokens`. Runs once per `openDatabase()`,
+  no data loss, safe on existing dev databases.
+- **+13 new tests** in `tests/lifecycle.test.js`: PATCH happy path,
+  PATCH 409 when in_progress, PATCH 400 on empty/oversize input, PATCH
+  404, archive idempotency + list-filter behaviour, unarchive,
+  `listPending` excludes archived, DELETE round-trip + `task.deleted`
+  emission, DELETE 404, complete-with-metadata happy path,
+  explicit-total override, bad-token rejection, no-metadata baseline.
+
+### Changed
+
+- `src/core/repo.js` — `complete()` accepts an optional `metadata`
+  object and `COALESCE`s the new columns so passing `null`s leaves
+  existing values intact. `listAll()` takes `{ includeArchived }`.
+- `listPending()` and `listByAgent()` now filter `archived_at IS NULL`.
+- Task row shape gained `archivedAt`, `model`, `tokensIn`, `tokensOut`,
+  `totalTokens`. The existing `result` / `error` / `progress` /
+  timestamp fields are unchanged.
+
 ## [0.4.0] — 2026-04-13
 
 ### Added
