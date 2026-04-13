@@ -1,0 +1,24 @@
+{
+  "name": "mcp-taskbridge",
+  "version": "0.2.0",
+  "description": "Generic bridge between a local web UI and any MCP client (Claude Desktop, Claude Cowork, ...). Submit tasks from the browser; an MCP agent picks them up through standard MCP tools and streams results back via HMAC-signed webhooks.",
+  "type": "module",
+  "private": true,
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start:web": "node bin/web.js",
+    "start:mcp": "node bin/mcp.js",
+    "test": "node --test --test-concurrency=1 tests/"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.4",
+    "better-sqlite3": "^11.3.0",
+    "express": "^4.21.1",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "supertest": "^7.2.2"
+  }
+}
