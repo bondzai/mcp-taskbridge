@@ -9,6 +9,11 @@ Claude Cowork's connector UI (including the **Cowork tab inside Claude Desktop**
 
 Path 2 has been verified end-to-end: browser → web server → SQLite → MCP stdio → supergateway → cloudflared → Anthropic cloud → Cowork tab, with HMAC-signed webhooks streaming results back to the browser over SSE.
 
+> **For a stable URL that doesn't rotate, use a Cloudflare _named_ tunnel** —
+> see [`cloudflare-tunnel.md`](cloudflare-tunnel.md). The `make tunnel`
+> quick-tunnel path described below is fine for a one-shot test session but
+> the hostname changes on every restart.
+
 ## Architecture (Cowork path)
 
 ```

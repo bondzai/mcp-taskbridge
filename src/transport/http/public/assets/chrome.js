@@ -5,6 +5,7 @@
    ============================================================ */
 
 import { PROMPT_TEMPLATES, buildPrompt, copyToClipboard } from "./prompts.js";
+import { escape as escapeHtml } from "./html.js";
 
 const STORAGE_KEY = "taskbridge.settings.v1";
 
@@ -339,10 +340,6 @@ const promptState = {
   vars: {}, // taskId-scoped vars; flat map keyed by template.variable key
 };
 
-const escapeHtml = (s) => String(s ?? "").replace(/[&<>"]/g, (c) =>
-  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])
-);
-
 const ensurePromptsModal = () => {
   if (document.getElementById(PROMPTS_MODAL_ID)) return;
   const wrap = document.createElement("div");
@@ -424,8 +421,9 @@ const renderPromptsMain = () => {
           <h6 class="mb-1"><i class="bi ${tpl.icon} me-2"></i>${escapeHtml(tpl.name)}</h6>
           <div class="small text-body-secondary">${escapeHtml(tpl.description)}</div>
         </div>
-        <button type="button" class="btn btn-primary btn-sm" id="tb-prompt-copy">
-          <i class="bi bi-clipboard me-1"></i>Copy prompt
+        <button type="button" class="tb-icon-btn" id="tb-prompt-copy"
+                title="Copy prompt to clipboard" aria-label="Copy prompt to clipboard">
+          <i class="bi bi-clipboard" aria-hidden="true"></i>
         </button>
       </header>
 
@@ -454,10 +452,23 @@ const renderPromptsMain = () => {
     });
   });
 
-  // Copy button
-  document.getElementById("tb-prompt-copy").addEventListener("click", async () => {
+  // Copy button — brief icon swap for in-place confirmation,
+  // toast as the secondary feedback channel.
+  const copyBtn = document.getElementById("tb-prompt-copy");
+  copyBtn.addEventListener("click", async () => {
     const { text } = renderPromptPreview(tpl);
     const ok = await copyToClipboard(text);
+    const icon = copyBtn.querySelector("i.bi");
+    if (ok && icon) {
+      copyBtn.classList.add("tb-icon-btn-ok");
+      icon.classList.remove("bi-clipboard");
+      icon.classList.add("bi-clipboard-check");
+      setTimeout(() => {
+        copyBtn.classList.remove("tb-icon-btn-ok");
+        icon.classList.remove("bi-clipboard-check");
+        icon.classList.add("bi-clipboard");
+      }, 1200);
+    }
     toast(ok ? "Prompt copied — paste into your AI agent" : "Copy failed — select manually");
   });
 };
