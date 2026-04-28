@@ -1,5 +1,5 @@
 /* ============================================================
-   MCP Taskbridge — shared styles
+   Procurement Agent — shared styles
    3 themes: light / dark / dim (GitHub-style soft dark)
    ============================================================ */
 
@@ -497,6 +497,144 @@ html[data-theme="dim"] .tb-pill-failed {
   z-index: 2000;
 }
 
+/* ---------- Attachments ---------- */
+
+.tb-attachment-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.25rem 0.55rem;
+  border-radius: var(--tb-radius);
+  background: var(--tb-surface-alt);
+  border: 1px solid var(--tb-border);
+  font-size: 0.8rem;
+  text-decoration: none;
+  color: inherit;
+  transition: background 0.15s ease;
+}
+.tb-attachment-badge:hover {
+  background: var(--tb-border);
+  color: inherit;
+}
+
+/* ---------- Progress timeline ---------- */
+
+.tb-progress-timeline {
+  position: relative;
+  padding-left: 1.5rem;
+  margin: 0.4rem 0;
+}
+.tb-progress-timeline::before {
+  content: "";
+  position: absolute;
+  left: 0.45rem;
+  top: 0.25rem;
+  bottom: 0.25rem;
+  width: 2px;
+  background: var(--tb-border);
+  border-radius: 1px;
+}
+.tb-progress-entry {
+  position: relative;
+  padding: 0.3rem 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+.tb-progress-dot {
+  position: absolute;
+  left: -1.5rem;
+  top: 0.5rem;
+  width: 8px;
+  height: 8px;
+  background: var(--tb-muted);
+  border-radius: 50%;
+  border: 2px solid var(--tb-surface);
+  box-shadow: 0 0 0 2px var(--tb-border);
+  flex-shrink: 0;
+}
+.tb-progress-dot-active { background: var(--tb-accent); }
+.tb-progress-dot-pulse {
+  background: var(--tb-accent);
+  animation: tb-dot-pulse 1.4s ease-in-out infinite;
+}
+@keyframes tb-dot-pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.3; }
+}
+.tb-progress-content {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.35rem;
+  font-size: 0.85rem;
+  line-height: 1.4;
+}
+.tb-progress-step {
+  font-family: var(--tb-mono);
+  font-size: 0.75rem;
+  color: var(--tb-accent);
+  font-weight: 600;
+}
+.tb-progress-message { color: var(--bs-body-color); }
+.tb-progress-time {
+  font-size: 0.7rem;
+  color: var(--tb-muted);
+}
+@keyframes tb-progress-slide-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.tb-progress-slide-in {
+  animation: tb-progress-slide-in 0.3s ease-out both;
+}
+.tb-progress-details summary {
+  cursor: pointer;
+  color: var(--tb-accent);
+  font-size: 0.85rem;
+  list-style: none;
+}
+.tb-progress-details summary::-webkit-details-marker { display: none; }
+.tb-progress-details summary::before {
+  content: "▸ ";
+}
+.tb-progress-details[open] summary::before {
+  content: "▾ ";
+}
+
+/* Live status bar — shown at the top of running tasks, like Codex's activity strip. */
+.tb-live-status {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  margin: -0.25rem -0.25rem 0.75rem;
+  border-radius: var(--tb-radius);
+  background: color-mix(in srgb, var(--tb-accent) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--tb-accent) 25%, transparent);
+  font-size: 0.85rem;
+}
+.tb-live-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--tb-accent);
+  animation: tb-dot-pulse 1.4s ease-in-out infinite;
+  flex-shrink: 0;
+}
+.tb-live-status-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tb-live-status-meta {
+  font-size: 0.75rem;
+  color: var(--tb-muted);
+  white-space: nowrap;
+}
+
 /* ---------- Running-task animations ---------- */
 
 /* Glow border around an in_progress card so the eye finds it instantly. */
@@ -607,7 +745,9 @@ html[data-theme="dim"] .tb-pill-failed {
   .tb-task-just-done .accordion-button,
   .tb-task-just-failed .accordion-button,
   .tb-task-fading,
-  .tb-skeleton-line {
+  .tb-skeleton-line,
+  .tb-progress-slide-in,
+  .tb-progress-dot-pulse {
     animation: none !important;
   }
 }
@@ -1199,6 +1339,273 @@ html[data-theme="dim"] .tb-pill-failed {
   .tb-page-header h1 { font-size: 1.3rem; }
 }
 
+/* ============================================================
+   Procurement — PR cards, timeline, comparison, RFQ status
+   ============================================================ */
+
+/* ---------- PR card ---------- */
+.tb-pr-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.tb-pr-card {
+  background: var(--tb-surface);
+  border: 1px solid var(--tb-border);
+  border-radius: var(--tb-radius);
+  padding: 1rem 1.25rem;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.tb-pr-card:hover {
+  border-color: var(--tb-accent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--tb-accent) 20%, transparent);
+}
+
+.tb-pr-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.5rem;
+}
+
+.tb-pr-card-title {
+  font-weight: 600;
+  text-decoration: none;
+  color: var(--bs-body-color);
+}
+.tb-pr-card-title:hover {
+  color: var(--tb-accent);
+}
+
+.tb-pr-card-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.tb-pr-card-body {
+  padding-top: 0.5rem;
+}
+
+.tb-vendor-inactive {
+  opacity: 0.6;
+}
+
+/* ---------- Procurement status pills ---------- */
+.tb-pill-draft {
+  color: var(--tb-muted);
+  background: color-mix(in srgb, var(--tb-muted) 12%, transparent);
+}
+
+.tb-pill-pending_approval {
+  color: #9a6700;
+  background: rgba(154, 103, 0, 0.1);
+}
+html[data-theme="dark"] .tb-pill-pending_approval,
+html[data-theme="dim"] .tb-pill-pending_approval {
+  color: #daaa3f;
+  background: rgba(218, 170, 63, 0.12);
+}
+
+.tb-pill-approved {
+  color: #1a7f37;
+  background: rgba(26, 127, 55, 0.1);
+}
+html[data-theme="dark"] .tb-pill-approved,
+html[data-theme="dim"] .tb-pill-approved {
+  color: #57ab5a;
+  background: rgba(87, 171, 90, 0.12);
+}
+
+.tb-pill-rejected {
+  color: #cf222e;
+  background: rgba(207, 34, 46, 0.1);
+}
+html[data-theme="dark"] .tb-pill-rejected,
+html[data-theme="dim"] .tb-pill-rejected {
+  color: #e5534b;
+  background: rgba(229, 83, 75, 0.12);
+}
+
+.tb-pill-sourcing {
+  color: #0969da;
+  background: rgba(9, 105, 218, 0.1);
+}
+html[data-theme="dark"] .tb-pill-sourcing,
+html[data-theme="dim"] .tb-pill-sourcing {
+  color: #539bf5;
+  background: rgba(83, 155, 245, 0.12);
+}
+
+.tb-pill-rfq_sent {
+  color: #8250df;
+  background: rgba(130, 80, 223, 0.1);
+}
+html[data-theme="dark"] .tb-pill-rfq_sent,
+html[data-theme="dim"] .tb-pill-rfq_sent {
+  color: #b083f0;
+  background: rgba(176, 131, 240, 0.12);
+}
+
+.tb-pill-quotes_received {
+  color: #6639ba;
+  background: rgba(102, 57, 186, 0.1);
+}
+html[data-theme="dark"] .tb-pill-quotes_received,
+html[data-theme="dim"] .tb-pill-quotes_received {
+  color: #a371f7;
+  background: rgba(163, 113, 247, 0.12);
+}
+
+.tb-pill-po_issued {
+  color: #0550ae;
+  background: rgba(5, 80, 174, 0.1);
+}
+html[data-theme="dark"] .tb-pill-po_issued,
+html[data-theme="dim"] .tb-pill-po_issued {
+  color: #6cb6ff;
+  background: rgba(108, 182, 255, 0.12);
+}
+
+.tb-pill-delivered {
+  color: #1a7f37;
+  background: rgba(26, 127, 55, 0.1);
+}
+html[data-theme="dark"] .tb-pill-delivered,
+html[data-theme="dim"] .tb-pill-delivered {
+  color: #57ab5a;
+  background: rgba(87, 171, 90, 0.12);
+}
+
+.tb-pill-cancelled {
+  color: var(--tb-muted);
+  background: color-mix(in srgb, var(--tb-muted) 12%, transparent);
+}
+
+/* ---------- Status timeline (vertical) ---------- */
+.tb-timeline {
+  position: relative;
+  padding-left: 1.5rem;
+}
+.tb-timeline::before {
+  content: "";
+  position: absolute;
+  top: 0.5rem;
+  bottom: 0.5rem;
+  left: 0.5rem;
+  width: 2px;
+  background: var(--tb-border);
+  border-radius: 1px;
+}
+
+.tb-timeline-item {
+  position: relative;
+  padding-bottom: 1rem;
+}
+.tb-timeline-item:last-child {
+  padding-bottom: 0;
+}
+
+.tb-timeline-dot {
+  position: absolute;
+  left: -1.25rem;
+  top: 0.35rem;
+  width: 0.6rem;
+  height: 0.6rem;
+  border-radius: 50%;
+  background: var(--tb-border);
+  border: 2px solid var(--tb-surface);
+  box-shadow: 0 0 0 2px var(--tb-border);
+}
+.tb-timeline-item-latest .tb-timeline-dot {
+  background: var(--tb-accent);
+  box-shadow: 0 0 0 2px var(--tb-accent);
+}
+
+.tb-timeline-content {
+  padding-left: 0.25rem;
+}
+
+/* ---------- Comparison table ---------- */
+.tb-comparison-table {
+  font-size: 0.85rem;
+}
+.tb-comparison-table thead th {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--tb-muted);
+  border-bottom-width: 2px;
+}
+
+/* ---------- RFQ status indicators ---------- */
+.tb-rfq-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.72rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  font-weight: 500;
+  text-transform: capitalize;
+}
+.tb-rfq-indicator-pending {
+  color: var(--tb-muted);
+  background: color-mix(in srgb, var(--tb-muted) 12%, transparent);
+}
+.tb-rfq-indicator-sent {
+  color: #8250df;
+  background: rgba(130, 80, 223, 0.1);
+}
+html[data-theme="dark"] .tb-rfq-indicator-sent,
+html[data-theme="dim"] .tb-rfq-indicator-sent {
+  color: #b083f0;
+  background: rgba(176, 131, 240, 0.12);
+}
+.tb-rfq-indicator-responded {
+  color: #1a7f37;
+  background: rgba(26, 127, 55, 0.1);
+}
+html[data-theme="dark"] .tb-rfq-indicator-responded,
+html[data-theme="dim"] .tb-rfq-indicator-responded {
+  color: #57ab5a;
+  background: rgba(87, 171, 90, 0.12);
+}
+.tb-rfq-indicator-declined {
+  color: #cf222e;
+  background: rgba(207, 34, 46, 0.1);
+}
+html[data-theme="dark"] .tb-rfq-indicator-declined,
+html[data-theme="dim"] .tb-rfq-indicator-declined {
+  color: #e5534b;
+  background: rgba(229, 83, 75, 0.12);
+}
+
+/* ---------- Vendor chip ---------- */
+.tb-vendor-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.8rem;
+  padding: 0.35rem 0.65rem;
+  border-radius: var(--tb-radius-sm);
+  background: var(--tb-surface-alt);
+  border: 1px solid var(--tb-border);
+}
+
+/* ---------- Line item form rows ---------- */
+.tb-line-item-row {
+  padding: 0.75rem 0;
+  border-bottom: 1px solid var(--tb-border);
+}
+.tb-line-item-row:last-child {
+  border-bottom: none;
+}
+
 /* ---------- Scrollbar polish in dim/dark ---------- */
 html[data-theme="dim"] ::-webkit-scrollbar,
 html[data-theme="dark"] ::-webkit-scrollbar { width: 10px; height: 10px; }
@@ -1210,4 +1617,427 @@ html[data-theme="dark"] ::-webkit-scrollbar-thumb {
 html[data-theme="dim"] ::-webkit-scrollbar-track,
 html[data-theme="dark"] ::-webkit-scrollbar-track {
   background: transparent;
+}
+
+/* ---------- Login page ---------- */
+.tb-login-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: var(--bs-body-bg);
+}
+
+.tb-login-card {
+  width: 100%;
+  max-width: 400px;
+  background: var(--tb-surface, var(--bs-body-bg));
+  border: 1px solid var(--tb-border, var(--bs-border-color));
+  border-radius: var(--tb-radius);
+  padding: 2rem;
+  box-shadow: var(--tb-shadow);
+}
+
+.tb-login-error {
+  color: var(--bs-danger);
+  font-size: 0.875rem;
+  min-height: 1.4em;
+  margin-bottom: 0.25rem;
+  display: none;
+}
+
+.tb-login-error.visible {
+  display: block;
+}
+
+/* ---------- Navbar user badge ---------- */
+.tb-user-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.82rem;
+  color: var(--bs-body-color);
+  white-space: nowrap;
+}
+
+.tb-user-badge .badge {
+  font-size: 0.7rem;
+  font-weight: 500;
+}
+
+/* ============================================================
+   UX Overhaul — Dashboard stat cards, enhanced PR cards,
+   tabs, vendor grid, improved spacing
+   ============================================================ */
+
+/* ---------- Stat cards row ---------- */
+.tb-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+.tb-stat-card {
+  background: var(--tb-surface);
+  border: 1px solid var(--tb-border);
+  border-radius: var(--tb-radius);
+  padding: 16px;
+  text-align: center;
+  transition: border-color 0.15s ease, transform 0.15s ease;
+}
+.tb-stat-card:hover {
+  border-color: var(--tb-accent);
+  transform: translateY(-1px);
+}
+.tb-stat-value {
+  font-size: 2rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--bs-emphasis-color);
+  line-height: 1.2;
+}
+.tb-stat-label {
+  font-size: 0.75rem;
+  color: var(--tb-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-top: 4px;
+}
+
+/* ---------- Enhanced PR cards ---------- */
+.tb-pr-card {
+  padding: 16px 20px;
+  margin-bottom: 8px;
+}
+.tb-pr-card-header {
+  margin-bottom: 8px;
+}
+.tb-pr-card-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tb-pr-card-items {
+  font-size: 0.8rem;
+  color: var(--tb-muted);
+  margin-top: 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tb-pr-card-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+/* ---------- Tabs for PR detail ---------- */
+.tb-tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 2px solid var(--tb-border);
+  margin-bottom: 24px;
+}
+.tb-tab {
+  padding: 8px 16px;
+  border: none;
+  background: none;
+  color: var(--tb-muted);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  font-size: 0.9rem;
+  transition: color 0.15s ease;
+}
+.tb-tab:hover {
+  color: var(--bs-body-color);
+}
+.tb-tab.active {
+  color: var(--tb-accent);
+  border-bottom-color: var(--tb-accent);
+  font-weight: 600;
+}
+.tb-tab-panel {
+  display: none;
+}
+.tb-tab-panel.active {
+  display: block;
+}
+
+/* ---------- Vendor grid layout ---------- */
+.tb-vendor-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 16px;
+}
+.tb-vendor-grid .tb-pr-card {
+  margin-bottom: 0;
+}
+
+/* ---------- Additional PR status pills (expanded set) ---------- */
+.tb-pill-pending_sourcing {
+  color: #0969da;
+  background: rgba(9, 105, 218, 0.1);
+}
+html[data-theme="dark"] .tb-pill-pending_sourcing,
+html[data-theme="dim"] .tb-pill-pending_sourcing {
+  color: #539bf5;
+  background: rgba(83, 155, 245, 0.12);
+}
+
+.tb-pill-sourced {
+  color: #0e6d5e;
+  background: rgba(14, 109, 94, 0.1);
+}
+html[data-theme="dark"] .tb-pill-sourced,
+html[data-theme="dim"] .tb-pill-sourced {
+  color: #56d4ba;
+  background: rgba(86, 212, 186, 0.12);
+}
+
+.tb-pill-rfq_pending {
+  color: #8250df;
+  background: rgba(130, 80, 223, 0.1);
+}
+html[data-theme="dark"] .tb-pill-rfq_pending,
+html[data-theme="dim"] .tb-pill-rfq_pending {
+  color: #b083f0;
+  background: rgba(176, 131, 240, 0.12);
+}
+
+.tb-pill-rfq_sending {
+  color: #8250df;
+  background: rgba(130, 80, 223, 0.1);
+}
+html[data-theme="dark"] .tb-pill-rfq_sending,
+html[data-theme="dim"] .tb-pill-rfq_sending {
+  color: #b083f0;
+  background: rgba(176, 131, 240, 0.12);
+}
+.tb-pill-rfq_sending .bi-send {
+  display: inline-block;
+  animation: tb-spin 1.6s linear infinite;
+}
+
+.tb-pill-awaiting_replies {
+  color: #bc4c00;
+  background: rgba(188, 76, 0, 0.1);
+}
+html[data-theme="dark"] .tb-pill-awaiting_replies,
+html[data-theme="dim"] .tb-pill-awaiting_replies {
+  color: #e0823d;
+  background: rgba(224, 130, 61, 0.12);
+}
+
+.tb-pill-analysis {
+  color: #0969da;
+  background: rgba(9, 105, 218, 0.1);
+}
+html[data-theme="dark"] .tb-pill-analysis,
+html[data-theme="dim"] .tb-pill-analysis {
+  color: #539bf5;
+  background: rgba(83, 155, 245, 0.12);
+}
+
+.tb-pill-completed {
+  color: #1a7f37;
+  background: rgba(26, 127, 55, 0.1);
+}
+html[data-theme="dark"] .tb-pill-completed,
+html[data-theme="dim"] .tb-pill-completed {
+  color: #57ab5a;
+  background: rgba(87, 171, 90, 0.12);
+}
+
+/* Spinning animation for sourcing pill */
+.tb-pill-sourcing .bi-arrow-repeat {
+  display: inline-block;
+  animation: tb-spin 1.6s linear infinite;
+  transform-origin: center;
+}
+
+/* ---------- RFQ status indicators (expanded) ---------- */
+.tb-rfq-indicator-sending {
+  color: #0969da;
+  background: rgba(9, 105, 218, 0.1);
+}
+html[data-theme="dark"] .tb-rfq-indicator-sending,
+html[data-theme="dim"] .tb-rfq-indicator-sending {
+  color: #539bf5;
+  background: rgba(83, 155, 245, 0.12);
+}
+
+.tb-rfq-indicator-delivered {
+  color: #1a7f37;
+  background: rgba(26, 127, 55, 0.1);
+}
+html[data-theme="dark"] .tb-rfq-indicator-delivered,
+html[data-theme="dim"] .tb-rfq-indicator-delivered {
+  color: #57ab5a;
+  background: rgba(87, 171, 90, 0.12);
+}
+
+.tb-rfq-indicator-opened {
+  color: #0e6d5e;
+  background: rgba(14, 109, 94, 0.1);
+}
+html[data-theme="dark"] .tb-rfq-indicator-opened,
+html[data-theme="dim"] .tb-rfq-indicator-opened {
+  color: #56d4ba;
+  background: rgba(86, 212, 186, 0.12);
+}
+
+.tb-rfq-indicator-replied {
+  color: #1a7f37;
+  background: rgba(26, 127, 55, 0.1);
+  font-weight: 700;
+}
+html[data-theme="dark"] .tb-rfq-indicator-replied,
+html[data-theme="dim"] .tb-rfq-indicator-replied {
+  color: #57ab5a;
+  background: rgba(87, 171, 90, 0.12);
+}
+
+.tb-rfq-indicator-expired {
+  color: var(--tb-muted);
+  background: color-mix(in srgb, var(--tb-muted) 12%, transparent);
+}
+
+.tb-rfq-indicator-send_failed {
+  color: #cf222e;
+  background: rgba(207, 34, 46, 0.1);
+}
+html[data-theme="dark"] .tb-rfq-indicator-send_failed,
+html[data-theme="dim"] .tb-rfq-indicator-send_failed {
+  color: #e5534b;
+  background: rgba(229, 83, 75, 0.12);
+}
+
+/* ---------- Readable width constraint ---------- */
+.tb-readable {
+  max-width: 70ch;
+}
+
+/* ---------- PR Detail: sticky header ---------- */
+.tb-sticky-header {
+  position: sticky;
+  top: 52px;
+  z-index: 10;
+  background: var(--bs-body-bg);
+  padding: 12px 0;
+  border-bottom: 1px solid var(--tb-border);
+  margin-bottom: 24px;
+}
+
+/* ---------- Timeline improved (dots + line) ---------- */
+.tb-timeline-item-latest .tb-timeline-dot {
+  width: 0.75rem;
+  height: 0.75rem;
+  left: -1.3rem;
+  top: 0.3rem;
+}
+
+/* ---------- Comparison table: highlight best ---------- */
+.tb-comparison-table tr.table-success td {
+  font-weight: 600;
+}
+
+/* ---------- Form stepper indicators ---------- */
+.tb-form-section {
+  margin-bottom: 32px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid var(--tb-border);
+}
+.tb-form-section:last-child {
+  border-bottom: none;
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
+.tb-form-section-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--bs-emphasis-color);
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.tb-form-section-title .tb-step-number {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--tb-accent);
+  color: white;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+/* ---------- Sticky form footer ---------- */
+.tb-form-footer {
+  position: sticky;
+  bottom: 0;
+  background: var(--tb-surface);
+  border-top: 1px solid var(--tb-border);
+  padding: 16px 20px;
+  margin: 24px -20px -16px;
+  border-radius: 0 0 var(--tb-radius) var(--tb-radius);
+}
+
+/* ---------- Vendor KPI section ---------- */
+.tb-kpi-section {
+  padding: 0.25rem 0;
+}
+.tb-kpi-section .tb-stats {
+  margin-bottom: 0.75rem;
+}
+.tb-kpi-good {
+  border-color: rgba(87, 171, 90, 0.5) !important;
+}
+.tb-kpi-good .tb-stat-value {
+  color: #57ab5a;
+}
+html[data-theme="light"] .tb-kpi-good .tb-stat-value {
+  color: #1a7f37;
+}
+.tb-kpi-warn {
+  border-color: rgba(218, 170, 63, 0.5) !important;
+}
+.tb-kpi-warn .tb-stat-value {
+  color: #daaa3f;
+}
+html[data-theme="light"] .tb-kpi-warn .tb-stat-value {
+  color: #9a6700;
+}
+.tb-kpi-bad {
+  border-color: rgba(229, 83, 75, 0.5) !important;
+}
+.tb-kpi-bad .tb-stat-value {
+  color: #e5534b;
+}
+html[data-theme="light"] .tb-kpi-bad .tb-stat-value {
+  color: #cf222e;
+}
+
+/* ---------- Responsive adjustments ---------- */
+@media (max-width: 767.98px) {
+  .tb-stats {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+  }
+  .tb-stat-card {
+    padding: 12px;
+  }
+  .tb-stat-value {
+    font-size: 1.5rem;
+  }
+  .tb-vendor-grid {
+    grid-template-columns: 1fr;
+  }
 }

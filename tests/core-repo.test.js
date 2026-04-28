@@ -90,8 +90,13 @@ test("progress: only valid while in_progress", () => {
   const t = repo.insert("t");
   assert.equal(repo.progress(t.id, "half"), null);
   repo.claim(t.id, "w");
-  const updated = repo.progress(t.id, "halfway there");
-  assert.equal(updated.progress, "halfway there");
+  const result = repo.progress(t.id, "halfway there");
+  assert.equal(result.task.progress, "halfway there");
+  assert.equal(result.entry.message, "halfway there");
+  assert.equal(result.entry.step, null);
+  const log = repo.getProgressLog(t.id);
+  assert.equal(log.length, 1);
+  assert.equal(log[0].message, "halfway there");
 });
 
 test("listByAgent: filters by agentId", () => {

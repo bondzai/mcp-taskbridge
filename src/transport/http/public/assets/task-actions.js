@@ -2,7 +2,8 @@
    Task action handlers — API client + DOM event dispatch.
    ============================================================ */
 
-import { toast, openPromptsModal } from "./chrome.js";
+import { toast, openPromptsModal, relativeTime } from "./chrome.js";
+import { escape } from "./html.js";
 import { buildPrompt, copyToClipboard } from "./prompts.js";
 
 /* ---------- API client ---------- */
@@ -18,13 +19,28 @@ const json = (url, init = {}) =>
   });
 
 export const taskApi = {
-  list:      (includeArchived) =>
+  list:        (includeArchived) =>
     json(includeArchived ? "/api/tasks?include_archived=true" : "/api/tasks"),
-  create:    (prompt) => json("/api/tasks", { method: "POST", body: JSON.stringify({ prompt }) }),
-  update:    (id, prompt) => json(`/api/tasks/${id}`, { method: "PATCH", body: JSON.stringify({ prompt }) }),
-  remove:    (id) => json(`/api/tasks/${id}`, { method: "DELETE" }),
-  archive:   (id) => json(`/api/tasks/${id}/archive`, { method: "POST" }),
-  unarchive: (id) => json(`/api/tasks/${id}/unarchive`, { method: "POST" }),
+  create:      (prompt, files) => {
+    if (files && files.length > 0) {
+      const form = new FormData();
+      form.append("prompt", prompt);
+      for (const f of files) form.append("files", f);
+      return fetch("/api/tasks", { method: "POST", body: form })
+        .then(async (res) => {
+          const body = await res.json().catch(() => ({}));
+          if (!res.ok) throw Object.assign(new Error(body.error || `HTTP ${res.status}`), { status: res.status, body });
+          return body;
+        });
+    }
+    return json("/api/tasks", { method: "POST", body: JSON.stringify({ prompt }) });
+  },
+  update:      (id, prompt) => json(`/api/tasks/${id}`, { method: "PATCH", body: JSON.stringify({ prompt }) }),
+  remove:      (id) => json(`/api/tasks/${id}`, { method: "DELETE" }),
+  archive:     (id) => json(`/api/tasks/${id}/archive`, { method: "POST" }),
+  unarchive:   (id) => json(`/api/tasks/${id}/unarchive`, { method: "POST" }),
+  progressLog: (id) => json(`/api/tasks/${id}/progress`),
+  attachments: (id) => json(`/api/tasks/${id}/attachments`),
 };
 
 /* ---------- Initial task load ---------- */
@@ -142,6 +158,28 @@ const handlers = {
     }
   },
 
+  async "load-attachments"({ id, store, onChange }) {
+    try {
+      const { attachments } = await taskApi.attachments(id);
+      store.setAttachments(id, attachments);
+      store.state.expanded.add(id);
+      onChange();
+    } catch {
+      toast("Failed to load attachments");
+    }
+  },
+
+  async "load-progress"({ id, store, onChange }) {
+    try {
+      const { entries } = await taskApi.progressLog(id);
+      store.setProgressLog(id, entries);
+      store.state.expanded.add(id);
+      onChange();
+    } catch {
+      toast("Failed to load progress log");
+    }
+  },
+
   async delete({ id, store, onChange }) {
     if (!confirm("Permanently delete this task? This cannot be undone.")) return;
     try {
@@ -229,14 +267,17 @@ export const bindToolbar = (store, { onChange, onReload, saveSettings }) => {
 export const bindSubmitForm = (store, onChange) => {
   const form = document.getElementById("tb-form");
   const promptEl = document.getElementById("tb-prompt");
+  const filesEl = document.getElementById("tb-files");
   if (!form || !promptEl) return;
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
     const prompt = promptEl.value.trim();
     if (!prompt) return;
     try {
-      const created = await taskApi.create(prompt);
+      const fileList = filesEl?.files?.length > 0 ? Array.from(filesEl.files) : null;
+      const created = await taskApi.create(prompt, fileList);
       promptEl.value = "";
+      if (filesEl) filesEl.value = "";
       store.upsert(created);
       onChange();
       toast("Task queued");
@@ -246,16 +287,61 @@ export const bindSubmitForm = (store, onChange) => {
   });
 };
 
+/* ---------- In-place progress append (no full re-render) ---------- */
+
+const appendProgressEntryToDOM = (taskId, entry) => {
+  const timeline = document.querySelector(
+    `.accordion-item[data-id="${CSS.escape(taskId)}"] .tb-progress-timeline`
+  );
+  if (!timeline) return;
+  const live = timeline.querySelector(".tb-progress-entry-live");
+  const el = document.createElement("div");
+  el.className = "tb-progress-entry tb-progress-slide-in";
+  const stepHtml = entry.step != null && entry.totalSteps != null
+    ? `<span class="tb-progress-step">${escape(String(entry.step))}/${escape(String(entry.totalSteps))}</span>`
+    : "";
+  const timeHtml = entry.createdAt
+    ? `<span class="tb-progress-time tb-relative-time" data-tb-rel="${entry.createdAt}">${escape(relativeTime(entry.createdAt))}</span>`
+    : "";
+  el.innerHTML = `
+    <div class="tb-progress-dot tb-progress-dot-active"></div>
+    <div class="tb-progress-content">
+      ${stepHtml}
+      <span class="tb-progress-message">${escape(entry.message)}</span>
+      ${timeHtml}
+    </div>
+  `;
+  if (live) timeline.insertBefore(el, live);
+  else timeline.appendChild(el);
+  // Update the live status bar text in place.
+  const statusText = document.querySelector(
+    `.accordion-item[data-id="${CSS.escape(taskId)}"] .tb-live-status-text`
+  );
+  if (statusText) statusText.textContent = entry.message;
+};
+
 /* ---------- SSE event subscriptions ---------- */
 
 export const bindSse = (store, onChange) => {
   const es = new EventSource("/api/events");
 
-  for (const ev of ["task.claimed", "task.progress", "task.updated", "task.unarchived"]) {
+  for (const ev of ["task.claimed", "task.updated", "task.unarchived"]) {
     es.addEventListener(ev, (e) => {
       try { store.upsert(JSON.parse(e.data)); onChange(); } catch {}
     });
   }
+
+  es.addEventListener("task.progress", (e) => {
+    try {
+      const data = JSON.parse(e.data);
+      store.upsert(data);
+      if (data.progressEntry) {
+        store.appendProgressEntry(data.id, data.progressEntry);
+        appendProgressEntryToDOM(data.id, data.progressEntry);
+      }
+      onChange();
+    } catch {}
+  });
 
   const onAnim = (ev, set) => es.addEventListener(ev, (e) => {
     try { const t = JSON.parse(e.data); store.markAnim(set, t.id); store.upsert(t); onChange(); } catch {}

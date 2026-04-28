@@ -111,6 +111,97 @@ const runDetails = (t) => {
   `;
 };
 
+/* ---------- Progress timeline ---------- */
+
+const progressTimeline = (task, store) => {
+  const entries = store.getProgressLog(task.id);
+  const isRunning = task.status === "in_progress";
+  const isTerminal = task.status === "done" || task.status === "failed";
+
+  if (entries.length === 0 && !task.progress) return "";
+
+  if (isTerminal && entries.length === 0 && task.progress) {
+    return html`
+      <div class="tb-section-label mt-3">Progress</div>
+      <button type="button" class="btn btn-link btn-sm p-0" data-action="load-progress" data-id="${task.id}">
+        <i class="bi bi-clock-history me-1"></i>Show progress steps
+      </button>
+    `;
+  }
+
+  const entryItems = entries.map((e) => html`
+    <div class="tb-progress-entry">
+      <div class="tb-progress-dot ${isRunning ? "tb-progress-dot-active" : ""}"></div>
+      <div class="tb-progress-content">
+        ${e.step != null && e.totalSteps != null
+          ? html`<span class="tb-progress-step">${e.step}/${e.totalSteps}</span>`
+          : ""}
+        <span class="tb-progress-message">${e.message}</span>
+        ${relativeSpan(e.createdAt, "tb-progress-time")}
+      </div>
+    </div>
+  `);
+
+  if (isTerminal && entries.length > 0) {
+    return html`
+      <div class="tb-section-label mt-3">Progress</div>
+      <details class="tb-progress-details">
+        <summary>${entries.length} step${entries.length === 1 ? "" : "s"}</summary>
+        <div class="tb-progress-timeline" data-task-id="${task.id}">${entryItems}</div>
+      </details>
+    `;
+  }
+
+  return html`
+    <div class="tb-section-label mt-3">Progress</div>
+    <div class="tb-progress-timeline" data-task-id="${task.id}">
+      ${entryItems}
+      <div class="tb-progress-entry tb-progress-entry-live">
+        <div class="tb-progress-dot tb-progress-dot-pulse"></div>
+        <div class="tb-progress-content">
+          <span class="tb-progress-message text-body-secondary">working…</span>
+        </div>
+      </div>
+    </div>
+  `;
+};
+
+/* ---------- File attachments ---------- */
+
+const formatFileSize = (bytes) => {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+};
+
+const fileIcon = (mime) =>
+  mime === "application/pdf" ? "bi-file-earmark-pdf" : "bi-file-earmark-text";
+
+const attachmentBlock = (task, store) => {
+  const atts = store.getAttachments(task.id);
+  if (atts.length === 0) {
+    if (!task.attachments?.length) return "";
+    return html`
+      <div class="tb-section-label mt-3">Attachments</div>
+      <button type="button" class="btn btn-link btn-sm p-0" data-action="load-attachments" data-id="${task.id}">
+        <i class="bi bi-paperclip me-1"></i>${task.attachments.length} file${task.attachments.length > 1 ? "s" : ""} — click to load
+      </button>
+    `;
+  }
+  return html`
+    <div class="tb-section-label mt-3">Attachments</div>
+    <div class="d-flex flex-wrap gap-2 mt-1">
+      ${atts.map((a) => html`
+        <a href="/api/tasks/${a.taskId}/attachments/${a.id}" class="tb-attachment-badge" download="${a.filename}" title="Download ${a.filename}">
+          <i class="bi ${fileIcon(a.mimeType)}"></i>
+          ${a.filename}
+          <span class="text-body-secondary">(${formatFileSize(a.size)})</span>
+        </a>
+      `)}
+    </div>
+  `;
+};
+
 /* ---------- Action button rows (delegated — data-action + data-id) ---------- */
 
 const promptActions = (id) => html`
@@ -179,14 +270,32 @@ const promptEditor = (t, draft) => html`
   </div>
 `;
 
+/* ---------- Live status bar (in-progress tasks) ---------- */
+
+const liveStatusBar = (t, store) => {
+  const entries = store.getProgressLog(t.id);
+  const latest = entries.length > 0 ? entries[entries.length - 1] : null;
+  const message = latest?.message || t.progress || "Working…";
+  return html`
+    <div class="tb-live-status" data-task-live="${t.id}">
+      <div class="tb-live-status-dot"></div>
+      <span class="tb-live-status-text">${message}</span>
+      <span class="tb-live-status-meta">
+        ${t.agentId ? html`<i class="bi bi-robot me-1"></i>${t.agentId}` : ""}
+        ${livePill(t.claimedAt)}
+      </span>
+    </div>
+  `;
+};
+
 /* ---------- Task accordion item ---------- */
 
 const taskItem = (t, store) => {
-  const expanded = store.state.expanded.has(t.id);
+  const isRunning = t.status === "in_progress";
+  const expanded = store.state.expanded.has(t.id) || isRunning;
   const mode = store.modeFor(t.id);
   const isArchived = t.archivedAt != null;
   const isEditing = store.state.editing.has(t.id);
-  const isRunning = t.status === "in_progress";
   const collapseId = `tb-acc-${t.id}`;
 
   const animClasses = [
@@ -206,7 +315,7 @@ const taskItem = (t, store) => {
             ${statusPill(t.status)}
             ${archivedPill(isArchived)}
             <span class="tb-task-id">#${shortId(t.id)}</span>
-            <span class="tb-task-prompt">${t.prompt}</span>
+            <span class="tb-task-prompt">${t.prompt}</span>${store.getAttachments(t.id).length > 0 || t.attachments?.length ? html`<i class="bi bi-paperclip text-body-secondary" title="Has attachments"></i>` : ""}
             <span class="tb-task-meta">
               ${isRunning ? livePill(t.claimedAt) : ""}
               ${agentBadge(t.agentId)}
@@ -217,6 +326,7 @@ const taskItem = (t, store) => {
       </h2>
       <div id="${collapseId}" class="accordion-collapse collapse ${expanded ? "show" : ""}">
         <div class="accordion-body">
+          ${isRunning ? liveStatusBar(t, store) : ""}
           <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-2">
             <div class="d-flex gap-2 flex-wrap">
               ${promptActions(t.id)}
@@ -226,7 +336,8 @@ const taskItem = (t, store) => {
           </div>
 
           ${isEditing ? promptEditor(t, store.state.drafts.get(t.id)) : contentBlock("Prompt", t.prompt, mode)}
-          ${contentBlock("Latest progress", t.progress, mode)}
+          ${attachmentBlock(t, store)}
+          ${progressTimeline(t, store)}
           ${contentBlock("Result", t.result, mode)}
           ${contentBlock("Error", t.error, mode, { isError: true })}
 

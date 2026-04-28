@@ -114,6 +114,7 @@ test("integration: MCP stdio client lists → claims → completes a task", asyn
     assert.deepEqual(names, [
       "claim_task",
       "fail_task",
+      "get_attachment_content",
       "get_task",
       "list_pending_tasks",
       "report_progress",

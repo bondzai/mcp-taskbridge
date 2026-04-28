@@ -25,4 +25,10 @@ export const config = {
   webhookUrl:
     env.TASKBRIDGE_WEBHOOK_URL || `http://${webHost}:${webPort}/webhooks/task-events`,
   agentId: env.TASKBRIDGE_AGENT_ID || "generic",
+
+  // Procurement — feature-gated
+  procurement: {
+    enabled: env.PROCUREMENT_ENABLED === "true" || env.PROCUREMENT_ENABLED === "1",
+    gcpProject: env.PROCUREMENT_GCP_PROJECT || null,
+  },
 };

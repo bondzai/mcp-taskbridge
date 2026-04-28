@@ -1,4 +1,5 @@
 import express from "express";
+import cookieParser from "cookie-parser";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHealthTracker } from "../../core/health.js";
@@ -20,6 +21,9 @@ export const createApp = ({
   health = createHealthTracker({ events }),
   externalChecks = [],
   mcpHandler = null,
+  procurementRoutes = null,
+  authMiddleware = null,
+  authRoutes = null,
 }) => {
   if (!service) throw new Error("service is required");
   if (!webhookSecret) throw new Error("webhookSecret is required");
@@ -37,11 +41,32 @@ export const createApp = ({
 
   const app = express();
   app.disable("x-powered-by");
+
+  // Cookie parsing is needed before auth middleware can read tb_session.
+  app.use(cookieParser());
+
+  // Static assets are served before auth so login.html + CSS/JS are reachable.
   app.use(express.static(publicDir));
+
+  // Auth routes (login/logout/me) are mounted before the guard so
+  // /api/auth/login is always reachable.
+  if (authRoutes) {
+    app.use(authRoutes);
+  }
+
+  // Auth middleware — gates everything that isn't public.
+  if (authMiddleware) {
+    app.use(authMiddleware);
+  }
+
   app.use(createRoutes({
     service, sse, webhookSecret, publicConfig, projectRoot, repo, health, externalChecks,
     mcpHandler, mcpHandlerForAdapter,
   }));
+
+  if (procurementRoutes) {
+    app.use(procurementRoutes);
+  }
 
   return { app, sse, health };
 };

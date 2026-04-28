@@ -18,11 +18,11 @@
 
 const FRAGMENTS = Object.freeze({
   /** Identity statement used at the top of every operational prompt. */
-  role: "You are an MCP agent connected to the **taskbridge** connector.",
+  role: "You are an MCP agent connected to the **procurement-agent** connector.",
 
   /** How the agent badge is decided — applies to every prompt that claims. */
   taggingNote:
-    "Taskbridge tags the task with the adapter id from the URL you connected to " +
+    "Procurement Agent tags the task with the adapter id from the URL you connected to" +
     "(for example, `/mcp/codex` → tagged `codex`). You do **not** need to pass " +
     "`agent_id` to `claim_task`. Pass it only if you want to override the URL " +
     "tag (e.g. you're a sub-worker spawned by a parent agent).",
@@ -39,7 +39,7 @@ const FRAGMENTS = Object.freeze({
     "**If your runtime exposes them**, also pass these optional arguments to " +
     "`submit_result`: `model` (e.g. `\"claude-opus-4-6\"`, `\"gpt-5\"`, " +
     "`\"codex-1\"`), `tokens_in`, `tokens_out`, `total_tokens`. " +
-    "Taskbridge displays them on the dashboard.",
+    "Procurement Agent displays them on the dashboard.",
 
   /** What to do when the task can't be completed. */
   failureRule:
@@ -49,7 +49,7 @@ const FRAGMENTS = Object.freeze({
 
   /** The "stay in your lane" rule. */
   stateOnlyRule:
-    "Use taskbridge tools ONLY for state transitions " +
+    "Use procurement-agent tools ONLY for state transitions " +
     "(`claim_task` / `report_progress` / `submit_result` / `fail_task`). " +
     "Do the actual work with whatever other tools you have " +
     "(web search, code execution, file tools, reasoning).",
@@ -75,7 +75,7 @@ const tplSolveOldest = () => compose([
     "2. Pick the **oldest** task (smallest `createdAt`).",
     "3. Call `claim_task` with that task's `id`.",
     "4. Read the task's `prompt` field carefully and do the work.",
-    "5. (Optional) Call `report_progress` with short status updates as you work — keep each under 200 characters.",
+    "5. Call `report_progress` after every meaningful step — the user watches live. Keep each message under 200 characters.",
     "6. Call `submit_result` with the `id` and a **well-formatted Markdown** result.",
     "7. " + FRAGMENTS.failureRule,
   ].join("\n"),
@@ -109,7 +109,7 @@ const tplSolveThis = ({ TASK_ID, PROMPT_PREVIEW }) => {
       `1. Call \`get_task\` with id \`${id}\`. If its status is not \`pending\`, stop and report what the status is — do not try to claim an already-claimed task.`,
       `2. Call \`claim_task\` with id \`${id}\`.`,
       `3. Complete the work described in the task's \`prompt\` field. Interpret it charitably if ambiguous, but be explicit about your interpretation in the result.`,
-      `4. (Optional) Call \`report_progress\` with id \`${id}\` and a short status update while you work.`,
+      `4. Call \`report_progress\` with id \`${id}\` after every meaningful step — the user watches live on the dashboard.`,
       `5. Call \`submit_result\` with id \`${id}\` and a **well-formatted Markdown** answer.`,
       "6. " + FRAGMENTS.failureRule,
     ].join("\n"),
@@ -132,7 +132,7 @@ const tplSolveThis = ({ TASK_ID, PROMPT_PREVIEW }) => {
 };
 
 const tplTriage = () => compose([
-  "You are a triage assistant connected to the **taskbridge** connector. Your job is to **categorise**, not to execute.",
+  "You are a triage assistant connected to the **procurement-agent** connector. Your job is to **categorise**, not to execute.",
 
   "## Steps",
   [

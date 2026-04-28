@@ -1,7 +1,7 @@
 /* ============================================================
    Shared chrome — navbar, theme switcher, time utils, toast,
    changelog modal, prompt library modal.
-   Loaded as a module from every page.
+   Loaded as a module from every page.  (Procurement Agent)
    ============================================================ */
 
 import { PROMPT_TEMPLATES, buildPrompt, copyToClipboard } from "./prompts.js";
@@ -115,8 +115,11 @@ export const renderMarkdown = (text) => {
 /* ---------- Navbar ---------- */
 
 const NAV_LINKS = [
-  { href: "/", label: "Tasks", icon: "bi-list-task", match: ["/", "/index.html"] },
-  { href: "/status.html", label: "Status", icon: "bi-activity", match: ["/status.html"] },
+  { href: "/", label: "Dashboard", icon: "bi-speedometer2", match: ["/", "/index.html", "/procurement-detail.html"] },
+  { href: "/procurement-new.html", label: "New PR", icon: "bi-plus-circle", match: ["/procurement-new.html"] },
+  { href: "/vendors.html", label: "Vendors", icon: "bi-building", match: ["/vendors.html"] },
+  { href: "/history.html", label: "History", icon: "bi-clock-history", match: ["/history.html"] },
+  { href: "/status.html", label: "System", icon: "bi-activity", match: ["/status.html"] },
   { href: "/settings.html", label: "Settings", icon: "bi-gear", match: ["/settings.html"] },
 ];
 
@@ -133,8 +136,8 @@ export const renderChrome = ({ pendingCount = 0 } = {}) => {
     <nav class="tb-navbar">
       <div class="container d-flex align-items-center gap-3">
         <a class="navbar-brand" href="/">
-          <span class="tb-logo"><i class="bi bi-diagram-3-fill"></i></span>
-          <span>MCP Taskbridge</span>
+          <span class="tb-logo"><i class="bi bi-cart3"></i></span>
+          <span>Procurement Agent</span>
           <button type="button" class="tb-version-badge" id="tb-version-badge" title="View changelog">
             <span id="tb-version-label">v…</span>
           </button>
@@ -161,6 +164,15 @@ export const renderChrome = ({ pendingCount = 0 } = {}) => {
               <span id="tb-pending-count">${pendingCount}</span>
               <span class="tb-label">pending</span>
             </span>
+
+            <span class="tb-user-badge" id="tb-user-badge" style="display:none">
+              <i class="bi bi-person-circle"></i>
+              <span id="tb-user-name"></span>
+              <span class="badge bg-secondary" id="tb-user-role"></span>
+            </span>
+            <button class="tb-icon-btn" id="tb-logout" title="Sign out" aria-label="Sign out" style="display:none">
+              <i class="bi bi-box-arrow-right"></i>
+            </button>
 
             <button type="button" class="tb-icon-btn" id="tb-prompts-btn" title="Prompt library" aria-label="Prompt library">
               <i class="bi bi-magic"></i>
@@ -235,6 +247,33 @@ export const renderChrome = ({ pendingCount = 0 } = {}) => {
     promptsBtn.addEventListener("click", (e) => {
       e.preventDefault();
       openPromptsModal();
+    });
+  }
+
+  // Auth: fetch current user and show badge + logout
+  const userBadge = slot.querySelector("#tb-user-badge");
+  const userName = slot.querySelector("#tb-user-name");
+  const userRole = slot.querySelector("#tb-user-role");
+  const logoutBtn = slot.querySelector("#tb-logout");
+
+  fetch("/api/auth/me")
+    .then((r) => (r.ok ? r.json() : null))
+    .then((data) => {
+      if (data?.ok && data.user) {
+        userName.textContent = data.user.username;
+        userRole.textContent = data.user.role;
+        userBadge.style.display = "";
+        logoutBtn.style.display = "";
+      }
+    })
+    .catch(() => { /* not logged in or auth not enabled */ });
+
+  if (logoutBtn) {
+    logoutBtn.addEventListener("click", async () => {
+      try {
+        await fetch("/api/auth/logout", { method: "POST" });
+      } catch { /* ignore */ }
+      window.location.href = "/login.html";
     });
   }
 };

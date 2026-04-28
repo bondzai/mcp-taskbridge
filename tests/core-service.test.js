@@ -112,8 +112,9 @@ test("progress: only valid while in_progress, validates message", async () => {
   await assert.rejects(() => service.progress(t.id, "half"), ConflictError);
   await service.claim(t.id, "w");
   await assert.rejects(() => service.progress(t.id, ""), ValidationError);
-  const updated = await service.progress(t.id, "halfway there");
-  assert.equal(updated.progress, "halfway there");
+  const result = await service.progress(t.id, "halfway there");
+  assert.equal(result.task.progress, "halfway there");
+  assert.equal(result.entry.message, "halfway there");
   assert.equal(captured.at(-1).ev, TaskEvents.PROGRESS);
 });
 

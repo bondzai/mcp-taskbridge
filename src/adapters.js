@@ -1,5 +1,9 @@
 const SHARED_CONTRACT =
-  "When you finish this task you MUST call submit_result(task_id, result). " +
+  "While working, call report_progress(task_id, message) after EVERY " +
+  "meaningful step — the user watches live on the dashboard. Keep each " +
+  "message under 200 characters, e.g. \"Searching 3 sources for NVDA price\", " +
+  "\"Comparing results\", \"Writing summary\". " +
+  "When you finish, call submit_result(task_id, result). " +
   "If you cannot complete it, call fail_task(task_id, reason). " +
   "Do not end your turn without calling one of those tools.";
 

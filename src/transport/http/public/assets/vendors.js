@@ -1,0 +1,630 @@
+/* ============================================================
+   Vendor management page — CRUD, search, materials, import.
+   ============================================================ */
+
+import { renderChrome, loadSettings, applyTheme, toast } from "./chrome.js";
+import { html, raw, toString } from "./html.js";
+
+/* ---------- API ---------- */
+
+const api = async (url, init = {}) => {
+  const res = await fetch(url, {
+    ...init,
+    headers: { "Content-Type": "application/json", ...(init.headers || {}) },
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw Object.assign(new Error(body.error || `HTTP ${res.status}`), { status: res.status, body });
+  return body;
+};
+
+/* ---------- State ---------- */
+
+const state = {
+  vendors: [],
+  loading: true,
+  search: "",
+  showInactive: false,
+  expandedMaterials: new Set(), // vendor ids with materials panel open
+  expandedKpis: new Set(), // vendor ids with KPI panel open
+  kpiCache: new Map(), // vendor id -> kpi data
+  editingId: null, // vendor id being edited in modal
+};
+
+/* ---------- Load ---------- */
+
+const loadVendors = async () => {
+  try {
+    state.loading = true;
+    render();
+    const params = new URLSearchParams();
+    if (state.search.trim()) params.set("q", state.search.trim());
+    if (state.showInactive) params.set("active", "all");
+    else params.set("active", "true");
+    const body = await api(`/api/procurement/vendors?${params}`);
+    state.vendors = body.vendors || [];
+    state.loading = false;
+    render();
+  } catch (err) {
+    state.loading = false;
+    render();
+    toast("Failed to load vendors");
+    console.error("[vendors]", err);
+  }
+};
+
+/* ---------- Filtered list ---------- */
+
+const filtered = () => {
+  const q = state.search.trim().toLowerCase();
+  let list = [...state.vendors];
+  if (!state.showInactive) list = list.filter((v) => v.active !== false);
+  if (q) {
+    list = list.filter((v) =>
+      (v.name || "").toLowerCase().includes(q) ||
+      (v.email || "").toLowerCase().includes(q) ||
+      (v.categories || []).some((c) => c.toLowerCase().includes(q))
+    );
+  }
+  return list;
+};
+
+/* ---------- Render helpers ---------- */
+
+const vendorCard = (v) => {
+  const cats = Array.isArray(v.categories) ? v.categories : [];
+  const materialsExpanded = state.expandedMaterials.has(v.id);
+  const isInactive = v.active === false;
+  const matCount = v.material_count ?? v.materials?.length ?? 0;
+
+  return html`
+    <div class="tb-pr-card ${isInactive ? "tb-vendor-inactive" : ""}" data-vendor-id="${v.id}">
+      <div class="tb-pr-card-header">
+        <div class="d-flex align-items-center gap-2 flex-wrap">
+          <i class="bi bi-building text-body-secondary"></i>
+          <span class="fw-semibold">${v.name || "Unnamed"}</span>
+          ${isInactive ? html`<span class="tb-pill tb-pill-cancelled"><i class="bi bi-slash-circle"></i>inactive</span>` : ""}
+        </div>
+        <div class="d-flex align-items-center gap-2 text-body-secondary small">
+          ${v.lead_time_days != null ? html`<span><i class="bi bi-clock me-1"></i>${v.lead_time_days}d lead</span>` : ""}
+          ${v.material_count != null ? html`<span><i class="bi bi-box me-1"></i>${v.material_count} materials</span>` : ""}
+        </div>
+      </div>
+      <div class="tb-pr-card-body">
+        <div class="d-flex flex-wrap gap-2 mb-2">
+          ${v.email ? html`<span class="small"><i class="bi bi-envelope me-1"></i>${v.email}</span>` : ""}
+          ${v.phone ? html`<span class="small"><i class="bi bi-telephone me-1"></i>${v.phone}</span>` : ""}
+        </div>
+        ${cats.length > 0 ? html`
+          <div class="d-flex flex-wrap gap-1 mb-2">
+            ${cats.map((c) => html`<span class="badge bg-secondary bg-opacity-25 text-body-secondary">${c}</span>`)}
+          </div>
+        ` : ""}
+        <div class="d-flex gap-2 flex-wrap">
+          <button type="button" class="btn btn-outline-primary btn-sm" data-action="edit-vendor" data-id="${v.id}">
+            <i class="bi bi-pencil me-1"></i>Edit
+          </button>
+          <button type="button" class="btn btn-outline-secondary btn-sm" data-action="toggle-materials" data-id="${v.id}">
+            <i class="bi bi-box me-1"></i>Materials
+            <i class="bi ${materialsExpanded ? "bi-chevron-up" : "bi-chevron-down"} ms-1"></i>
+          </button>
+          <button type="button" class="btn btn-outline-info btn-sm" data-action="toggle-kpis" data-id="${v.id}">
+            <i class="bi bi-graph-up me-1"></i>KPIs
+            <i class="bi ${state.expandedKpis.has(v.id) ? "bi-chevron-up" : "bi-chevron-down"} ms-1"></i>
+          </button>
+          ${isInactive ? html`
+            <button type="button" class="btn btn-outline-success btn-sm" data-action="activate-vendor" data-id="${v.id}">
+              <i class="bi bi-check-circle me-1"></i>Activate
+            </button>
+          ` : html`
+            <button type="button" class="btn btn-outline-danger btn-sm" data-action="deactivate-vendor" data-id="${v.id}">
+              <i class="bi bi-slash-circle me-1"></i>Deactivate
+            </button>
+          `}
+        </div>
+        ${materialsExpanded ? html`
+          <div class="mt-3 pt-3 border-top" id="vendor-materials-${v.id}">
+            <div class="d-flex align-items-center justify-content-between mb-2">
+              <span class="tb-section-label mb-0">Materials</span>
+              <button type="button" class="btn btn-outline-primary btn-sm" data-action="add-material" data-id="${v.id}">
+                <i class="bi bi-plus-lg me-1"></i>Add
+              </button>
+            </div>
+            <div class="vendor-materials-list" data-vendor-id="${v.id}">
+              ${v.materials && v.materials.length > 0
+                ? html`
+                  <div class="table-responsive">
+                    <table class="table table-sm mb-0">
+                      <thead>
+                        <tr>
+                          <th>Name</th>
+                          <th>Category</th>
+                          <th class="text-end">Unit Price</th>
+                          <th>Unit</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        ${v.materials.map((m) => html`
+                          <tr>
+                            <td>${m.name || "--"}</td>
+                            <td>${m.category || "--"}</td>
+                            <td class="text-end tb-mono">${m.unit_price != null ? m.unit_price.toLocaleString() : "--"}</td>
+                            <td>${m.unit || "--"}</td>
+                          </tr>
+                        `)}
+                      </tbody>
+                    </table>
+                  </div>
+                `
+                : html`<div class="small text-body-secondary">No materials listed. Click "Add" to create one.</div>`
+              }
+            </div>
+          </div>
+        ` : ""}
+        ${state.expandedKpis.has(v.id) ? renderKpiSection(v.id) : ""}
+      </div>
+    </div>
+  `;
+};
+
+/* ---------- KPI helpers ---------- */
+
+const kpiColorClass = (metric, value) => {
+  if (value == null) return "";
+  if (metric === "responseRate") {
+    if (value > 0.8) return "tb-kpi-good";
+    if (value >= 0.5) return "tb-kpi-warn";
+    return "tb-kpi-bad";
+  }
+  if (metric === "winRate") {
+    if (value > 0.6) return "tb-kpi-good";
+    if (value >= 0.3) return "tb-kpi-warn";
+    return "";
+  }
+  if (metric === "avgResponseDays") {
+    if (value < 3) return "tb-kpi-good";
+    if (value <= 7) return "tb-kpi-warn";
+    return "tb-kpi-bad";
+  }
+  return "";
+};
+
+const fmtPct = (v) => v != null ? `${Math.round(v * 100)}%` : "--";
+const fmtDays = (v) => v != null ? `${v.toFixed(1)}d` : "--";
+const fmtValue = (v, currency) => {
+  if (v == null) return "--";
+  if (v >= 1000) return `${currency === "USD" ? "$" : ""}${(v / 1000).toFixed(1)}K`;
+  return `${currency === "USD" ? "$" : ""}${v.toFixed(0)}`;
+};
+
+const renderKpiSection = (vendorId) => {
+  const kpi = state.kpiCache.get(vendorId);
+  if (!kpi) {
+    return html`
+      <div class="mt-3 pt-3 border-top tb-kpi-section">
+        <div class="text-center text-body-secondary py-3">
+          <div class="spinner-border spinner-border-sm me-2" role="status"></div>Loading KPIs...
+        </div>
+      </div>
+    `;
+  }
+
+  return html`
+    <div class="mt-3 pt-3 border-top tb-kpi-section">
+      <div class="tb-section-label mb-2">Vendor KPIs</div>
+      <div class="tb-stats">
+        <div class="tb-stat-card ${kpiColorClass("responseRate", kpi.responseRate)}">
+          <div class="tb-stat-value">${fmtPct(kpi.responseRate)}</div>
+          <div class="tb-stat-label">Response Rate</div>
+        </div>
+        <div class="tb-stat-card ${kpiColorClass("avgResponseDays", kpi.avgResponseDays)}">
+          <div class="tb-stat-value">${fmtDays(kpi.avgResponseDays)}</div>
+          <div class="tb-stat-label">Avg Resp Time</div>
+        </div>
+        <div class="tb-stat-card ${kpiColorClass("winRate", kpi.winRate)}">
+          <div class="tb-stat-value">${fmtPct(kpi.winRate)}</div>
+          <div class="tb-stat-label">Win Rate</div>
+        </div>
+        <div class="tb-stat-card">
+          <div class="tb-stat-value">${fmtValue(kpi.totalValue, kpi.currency)}</div>
+          <div class="tb-stat-label">Total Value</div>
+        </div>
+      </div>
+      <div class="small text-body-secondary">
+        PRs Served: ${kpi.prsServed} &middot; Total RFQs: ${kpi.totalRfqs}
+      </div>
+    </div>
+  `;
+};
+
+const loadVendorKpis = async (vendorId) => {
+  try {
+    const kpis = await api(`/api/procurement/vendors/${vendorId}/kpis`);
+    state.kpiCache.set(vendorId, kpis);
+    render();
+  } catch (err) {
+    toast("Failed to load vendor KPIs");
+    console.error("[vendors]", err);
+  }
+};
+
+const skeleton = () => html`
+  <div class="tb-skeleton-list" aria-hidden="true">
+    ${[0, 1, 2].map(() => html`
+      <div class="tb-skeleton-card">
+        <div class="tb-skeleton-line tb-skeleton-line-sm"></div>
+        <div class="tb-skeleton-line tb-skeleton-line-lg"></div>
+        <div class="tb-skeleton-line tb-skeleton-line-md"></div>
+      </div>
+    `)}
+  </div>
+`;
+
+const emptyState = () => html`
+  <div class="tb-empty" role="status">
+    <i class="bi bi-building" aria-hidden="true"></i>
+    <div>No vendors found.</div>
+    <div class="small mt-1">Add your first vendor using the button above.</div>
+  </div>
+`;
+
+/* ---------- Render ---------- */
+
+const render = () => {
+  const listEl = document.getElementById("vendor-list");
+  if (!listEl) return;
+
+  listEl.setAttribute("aria-busy", state.loading ? "true" : "false");
+
+  if (state.loading && state.vendors.length === 0) {
+    listEl.innerHTML = toString(skeleton());
+    return;
+  }
+
+  const list = filtered();
+  if (list.length === 0) {
+    listEl.innerHTML = toString(emptyState());
+    return;
+  }
+
+  listEl.innerHTML = toString(html`
+    <div class="tb-vendor-grid">${list.map(vendorCard)}</div>
+  `);
+};
+
+/* ---------- Modal helpers ---------- */
+
+const openVendorModal = (vendor = null) => {
+  state.editingId = vendor?.id || null;
+  const actionLabel = document.getElementById("vendor-modal-action");
+  if (actionLabel) actionLabel.textContent = vendor ? "Edit" : "Add";
+
+  const form = document.getElementById("vendor-form");
+  if (form) form.classList.remove("was-validated");
+
+  // Fill form fields
+  const fill = (id, val) => {
+    const el = document.getElementById(id);
+    if (el) el.value = val || "";
+  };
+  fill("vendor-name", vendor?.name);
+  fill("vendor-email", vendor?.email);
+  fill("vendor-phone", vendor?.phone);
+  fill("vendor-lead-time", vendor?.lead_time_days);
+  fill("vendor-categories", Array.isArray(vendor?.categories) ? vendor.categories.join(", ") : (vendor?.categories || ""));
+  fill("vendor-address", vendor?.address);
+  fill("vendor-notes", vendor?.notes);
+
+  const modal = document.getElementById("vendor-modal");
+  window.bootstrap?.Modal?.getOrCreateInstance(modal)?.show();
+};
+
+const closeVendorModal = () => {
+  const modal = document.getElementById("vendor-modal");
+  window.bootstrap?.Modal?.getInstance(modal)?.hide();
+};
+
+/* ---------- Save vendor ---------- */
+
+const saveVendor = async () => {
+  const form = document.getElementById("vendor-form");
+  form.classList.add("was-validated");
+
+  const name = document.getElementById("vendor-name")?.value?.trim();
+  const email = document.getElementById("vendor-email")?.value?.trim();
+
+  if (!name || !email) {
+    toast("Name and email are required");
+    return;
+  }
+
+  const payload = {
+    name,
+    email,
+    phone: document.getElementById("vendor-phone")?.value?.trim() || null,
+    lead_time_days: Number(document.getElementById("vendor-lead-time")?.value) || null,
+    categories: (document.getElementById("vendor-categories")?.value || "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean),
+    address: document.getElementById("vendor-address")?.value?.trim() || null,
+    notes: document.getElementById("vendor-notes")?.value?.trim() || null,
+  };
+
+  try {
+    if (state.editingId) {
+      await api(`/api/procurement/vendors/${state.editingId}`, {
+        method: "PATCH",
+        body: JSON.stringify(payload),
+      });
+      toast("Vendor updated");
+    } else {
+      await api("/api/procurement/vendors", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+      toast("Vendor created");
+    }
+    closeVendorModal();
+    await loadVendors();
+  } catch (err) {
+    toast(err.message || "Failed to save vendor");
+    console.error("[vendors]", err);
+  }
+};
+
+/* ---------- Action handlers ---------- */
+
+const handleAction = async (action, id) => {
+  switch (action) {
+    case "edit-vendor": {
+      const vendor = state.vendors.find((v) => v.id === id);
+      if (vendor) openVendorModal(vendor);
+      break;
+    }
+
+    case "toggle-materials": {
+      if (state.expandedMaterials.has(id)) {
+        state.expandedMaterials.delete(id);
+      } else {
+        // Load materials for this vendor if not already loaded
+        const vendor = state.vendors.find((v) => v.id === id);
+        if (vendor && !vendor.materials) {
+          try {
+            const detail = await api(`/api/procurement/vendors/${id}`);
+            Object.assign(vendor, detail);
+          } catch (err) {
+            toast("Failed to load vendor details");
+            console.error("[vendors]", err);
+          }
+        }
+        state.expandedMaterials.add(id);
+      }
+      render();
+      break;
+    }
+
+    case "toggle-kpis": {
+      if (state.expandedKpis.has(id)) {
+        state.expandedKpis.delete(id);
+      } else {
+        state.expandedKpis.add(id);
+        if (!state.kpiCache.has(id)) {
+          render(); // show spinner
+          loadVendorKpis(id);
+          return;
+        }
+      }
+      render();
+      break;
+    }
+
+    case "deactivate-vendor": {
+      if (!confirm("Deactivate this vendor?")) return;
+      try {
+        await api(`/api/procurement/vendors/${id}/deactivate`, { method: "POST" });
+        toast("Vendor deactivated");
+        await loadVendors();
+      } catch (err) {
+        toast(err.message || "Failed to deactivate vendor");
+      }
+      break;
+    }
+
+    case "activate-vendor": {
+      try {
+        await api(`/api/procurement/vendors/${id}/activate`, { method: "POST" });
+        toast("Vendor activated");
+        await loadVendors();
+      } catch (err) {
+        toast(err.message || "Failed to activate vendor");
+      }
+      break;
+    }
+
+    case "add-material": {
+      const matName = prompt("Material name:");
+      if (!matName) return;
+      const matUnit = prompt("Unit (e.g. kg, piece, box):") || "";
+      const matPrice = prompt("Unit price:") || "";
+      const matCat = prompt("Category:") || "";
+      try {
+        await api(`/api/procurement/vendors/${id}/materials`, {
+          method: "POST",
+          body: JSON.stringify({
+            name: matName,
+            unit: matUnit,
+            unit_price: matPrice ? Number(matPrice) : null,
+            category: matCat || null,
+          }),
+        });
+        toast("Material added");
+        // Refresh vendor detail
+        const vendor = state.vendors.find((v) => v.id === id);
+        if (vendor) {
+          try {
+            const detail = await api(`/api/procurement/vendors/${id}`);
+            Object.assign(vendor, detail);
+          } catch { /* ignore */ }
+        }
+        render();
+      } catch (err) {
+        toast(err.message || "Failed to add material");
+      }
+      break;
+    }
+  }
+};
+
+/* ---------- Import ---------- */
+
+let importData = null;
+
+const openImportModal = () => {
+  importData = null;
+  const fileInput = document.getElementById("vendor-import-file");
+  const preview = document.getElementById("vendor-import-preview");
+  const confirmBtn = document.getElementById("vendor-import-confirm");
+  if (fileInput) fileInput.value = "";
+  if (preview) preview.innerHTML = "";
+  if (confirmBtn) confirmBtn.disabled = true;
+
+  const modal = document.getElementById("vendor-import-modal");
+  window.bootstrap?.Modal?.getOrCreateInstance(modal)?.show();
+};
+
+const handleImportFile = async (file) => {
+  const preview = document.getElementById("vendor-import-preview");
+  const confirmBtn = document.getElementById("vendor-import-confirm");
+
+  try {
+    const text = await file.text();
+    const data = JSON.parse(text);
+    const vendors = Array.isArray(data) ? data : (data.vendors || []);
+
+    if (!Array.isArray(vendors) || vendors.length === 0) {
+      preview.innerHTML = '<div class="text-danger">No valid vendor data found in file.</div>';
+      confirmBtn.disabled = true;
+      return;
+    }
+
+    importData = vendors;
+    preview.innerHTML = `<div class="text-success"><i class="bi bi-check-circle me-1"></i>${vendors.length} vendor(s) ready to import.</div>`;
+    confirmBtn.disabled = false;
+  } catch (err) {
+    preview.innerHTML = `<div class="text-danger">Invalid JSON: ${err.message}</div>`;
+    confirmBtn.disabled = true;
+  }
+};
+
+const executeImport = async () => {
+  if (!importData) return;
+
+  const confirmBtn = document.getElementById("vendor-import-confirm");
+  if (confirmBtn) confirmBtn.disabled = true;
+
+  try {
+    await api("/api/procurement/vendors/import", {
+      method: "POST",
+      body: JSON.stringify({ vendors: importData }),
+    });
+    toast(`Imported ${importData.length} vendor(s)`);
+    const modal = document.getElementById("vendor-import-modal");
+    window.bootstrap?.Modal?.getInstance(modal)?.hide();
+    importData = null;
+    await loadVendors();
+  } catch (err) {
+    toast(err.message || "Import failed");
+    if (confirmBtn) confirmBtn.disabled = false;
+    console.error("[vendors]", err);
+  }
+};
+
+/* ---------- Event wiring ---------- */
+
+const bindEvents = () => {
+  // Toolbar search
+  const searchEl = document.getElementById("vendor-q");
+  if (searchEl) {
+    searchEl.addEventListener("input", (e) => {
+      state.search = e.target.value;
+      render();
+    });
+  }
+
+  // Inactive toggle
+  const inactiveEl = document.getElementById("vendor-show-inactive");
+  if (inactiveEl) {
+    inactiveEl.addEventListener("change", (e) => {
+      state.showInactive = e.target.checked;
+      loadVendors();
+    });
+  }
+
+  // Refresh
+  const refreshBtn = document.getElementById("vendor-refresh");
+  if (refreshBtn) {
+    refreshBtn.addEventListener("click", () => loadVendors());
+  }
+
+  // Add vendor button
+  const addBtn = document.getElementById("vendor-add-btn");
+  if (addBtn) {
+    addBtn.addEventListener("click", () => openVendorModal());
+  }
+
+  // Import button
+  const importBtn = document.getElementById("vendor-import-btn");
+  if (importBtn) {
+    importBtn.addEventListener("click", () => openImportModal());
+  }
+
+  // Vendor form submit
+  const vendorForm = document.getElementById("vendor-form");
+  if (vendorForm) {
+    vendorForm.addEventListener("submit", (e) => {
+      e.preventDefault();
+      saveVendor();
+    });
+  }
+
+  // Import file change
+  const importFile = document.getElementById("vendor-import-file");
+  if (importFile) {
+    importFile.addEventListener("change", (e) => {
+      const file = e.target.files?.[0];
+      if (file) handleImportFile(file);
+    });
+  }
+
+  // Import confirm
+  const importConfirm = document.getElementById("vendor-import-confirm");
+  if (importConfirm) {
+    importConfirm.addEventListener("click", () => executeImport());
+  }
+
+  // Delegated clicks on vendor list
+  const listEl = document.getElementById("vendor-list");
+  if (listEl) {
+    listEl.addEventListener("click", (e) => {
+      const target = e.target.closest("[data-action]");
+      if (!target) return;
+      e.preventDefault();
+      const action = target.getAttribute("data-action");
+      const id = target.getAttribute("data-id");
+      if (action && id) handleAction(action, id);
+    });
+  }
+};
+
+/* ---------- Boot ---------- */
+
+const boot = () => {
+  const settings = loadSettings();
+  applyTheme(settings.theme);
+  renderChrome();
+  bindEvents();
+  render();
+  loadVendors();
+};
+
+boot();

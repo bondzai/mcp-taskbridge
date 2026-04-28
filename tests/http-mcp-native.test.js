@@ -97,7 +97,7 @@ test("native /mcp: initialize returns taskbridge serverInfo", async () => {
   }
 });
 
-test("native /mcp: tools/list returns all six tools", async () => {
+test("native /mcp: tools/list returns all seven tools", async () => {
   const { server, url, db } = await buildLiveApp();
   try {
     await callMcp(url, initializeMessage(1));
@@ -111,6 +111,7 @@ test("native /mcp: tools/list returns all six tools", async () => {
     assert.deepEqual(names, [
       "claim_task",
       "fail_task",
+      "get_attachment_content",
       "get_task",
       "list_pending_tasks",
       "report_progress",

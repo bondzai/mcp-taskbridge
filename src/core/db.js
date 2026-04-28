@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import Database from "better-sqlite3";
+import { migrateProcurement } from "../procurement/schema.js";
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS tasks (
@@ -27,6 +28,27 @@ CREATE INDEX IF NOT EXISTS idx_tasks_created_at ON tasks(created_at);
 CREATE INDEX IF NOT EXISTS idx_tasks_agent ON tasks(agent_id);
 -- idx_tasks_archived_at is created in migrate() because the column is added there
 -- on existing dev databases; creating it here would crash with "no such column".
+
+CREATE TABLE IF NOT EXISTS task_progress_log (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  task_id     TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  message     TEXT NOT NULL,
+  step        INTEGER,
+  total_steps INTEGER,
+  created_at  INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_progress_log_task ON task_progress_log(task_id);
+
+CREATE TABLE IF NOT EXISTS task_attachments (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  task_id     TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  filename    TEXT NOT NULL,
+  mime_type   TEXT NOT NULL,
+  size        INTEGER NOT NULL,
+  content     BLOB NOT NULL,
+  created_at  INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_attachments_task ON task_attachments(task_id);
 `;
 
 /**
@@ -40,6 +62,7 @@ const ADDED_COLUMNS = [
   ["tokens_in",    "INTEGER"],
   ["tokens_out",   "INTEGER"],
   ["total_tokens", "INTEGER"],
+  ["metadata",     "TEXT"],
 ];
 
 const migrate = (db) => {
@@ -67,5 +90,6 @@ export const openDatabase = (filePath) => {
   db.pragma("foreign_keys = ON");
   db.exec(SCHEMA);
   migrate(db);
+  migrateProcurement(db);
   return db;
 };

@@ -46,7 +46,11 @@ export const createToolHandlers = ({ service, adapterId }) => {
       const pending = service.listPending(limit);
       return { count: pending.length, tasks: pending };
     }),
-    getTask: wrap(async ({ task_id }) => service.get(task_id)),
+    getTask: wrap(async ({ task_id }) => {
+      const task = service.get(task_id);
+      const attachments = service.getAttachments?.(task_id) ?? [];
+      return { ...task, attachments };
+    }),
     claimTask: wrap(async ({ task_id, agent_id }) => {
       const claimed = await service.claim(task_id, agent_id ?? currentAdapterId);
       return { task: claimed, instructions: currentAdapter.instructions };
@@ -64,9 +68,23 @@ export const createToolHandlers = ({ service, adapterId }) => {
       const failed = await service.fail(task_id, reason);
       return { ok: true, task: failed };
     }),
-    reportProgress: wrap(async ({ task_id, message }) => {
-      const updated = await service.progress(task_id, message);
-      return { ok: true, task: updated };
+    getAttachmentContent: wrap(async ({ task_id, attachment_id }) => {
+      const att = service.getAttachmentContent(task_id, attachment_id);
+      let text;
+      if (att.mimeType === "text/plain") {
+        text = att.content.toString("utf8");
+      } else if (att.mimeType === "application/pdf") {
+        const pdfParse = (await import("pdf-parse")).default;
+        text = (await pdfParse(att.content)).text;
+      }
+      return { filename: att.filename, mimeType: att.mimeType, size: att.size, text };
+    }),
+    reportProgress: wrap(async ({ task_id, message, step, total_steps }) => {
+      const result = await service.progress(task_id, message, {
+        step,
+        totalSteps: total_steps,
+      });
+      return { ok: true, task: result.task };
     }),
   };
 };
@@ -149,6 +167,21 @@ export const toolDefinitions = (handlers) => [
     run: (args) => handlers.failTask(args),
   },
   {
+    name: "get_attachment_content",
+    config: {
+      title: "Get Attachment Content",
+      description:
+        "Retrieve the text content of a file attached to a task. " +
+        "PDF files are converted to plain text. " +
+        "Call get_task first to see available attachment ids.",
+      inputSchema: {
+        task_id: z.string().describe("Task id"),
+        attachment_id: z.number().int().positive().describe("Attachment id from the task's attachments list"),
+      },
+    },
+    run: (args) => handlers.getAttachmentContent(args),
+  },
+  {
     name: "report_progress",
     config: {
       title: "Report Progress",
@@ -157,6 +190,10 @@ export const toolDefinitions = (handlers) => [
       inputSchema: {
         task_id: z.string().describe("Task id"),
         message: z.string().describe("Short status update"),
+        step: z.number().int().nonnegative().optional()
+          .describe("Current step number (1-based), if the work has discrete steps"),
+        total_steps: z.number().int().positive().optional()
+          .describe("Total number of steps, if known"),
       },
     },
     run: (args) => handlers.reportProgress(args),

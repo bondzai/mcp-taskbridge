@@ -8,6 +8,9 @@ const MAX_REASON_LEN = 2_000;
 const MAX_AGENT_LEN = 128;
 const MAX_MODEL_LEN = 128;
 const MAX_TOKENS = 100_000_000;
+const MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024;
+const MAX_ATTACHMENTS = 5;
+const ALLOWED_MIME_TYPES = new Set(["application/pdf", "text/plain"]);
 
 const cleanModel = (value) => {
   if (value == null) return null;
@@ -78,7 +81,7 @@ const clampLimit = (limit, fallback, max) => {
   return Math.min(n, max);
 };
 
-export const createTaskService = ({ repo, events }) => {
+export const createTaskService = ({ repo, events, attachmentsRepo }) => {
   if (!repo) throw new Error("repo is required");
   if (!events) throw new Error("events bus is required");
 
@@ -94,11 +97,24 @@ export const createTaskService = ({ repo, events }) => {
   };
 
   return {
-    async create(prompt) {
+    async create(prompt, files) {
       const cleaned = requireNonEmptyString(prompt, "prompt", MAX_PROMPT_LEN);
+      if (files && files.length > 0) {
+        if (!attachmentsRepo) throw new ValidationError("file attachments not supported");
+        if (files.length > MAX_ATTACHMENTS) throw new ValidationError(`max ${MAX_ATTACHMENTS} attachments`);
+        for (const f of files) {
+          if (!ALLOWED_MIME_TYPES.has(f.mimeType)) throw new ValidationError(`unsupported file type: ${f.mimeType}`);
+          if (f.size > MAX_ATTACHMENT_SIZE) throw new ValidationError(`file exceeds ${MAX_ATTACHMENT_SIZE / 1024 / 1024} MB limit`);
+        }
+      }
       const task = repo.insert(cleaned);
-      await emit(TaskEvents.CREATED, task);
-      return task;
+      let attachments = [];
+      if (files && files.length > 0) {
+        attachments = attachmentsRepo.insertMany(task.id, files);
+      }
+      const result = attachments.length > 0 ? { ...task, attachments } : task;
+      await emit(TaskEvents.CREATED, result);
+      return result;
     },
 
     get(id) {
@@ -202,7 +218,20 @@ export const createTaskService = ({ repo, events }) => {
       return failed;
     },
 
-    async progress(id, message) {
+    getAttachments(id) {
+      mustExist(id);
+      return attachmentsRepo ? attachmentsRepo.listByTaskId(id) : [];
+    },
+
+    getAttachmentContent(id, attachmentId) {
+      mustExist(id);
+      if (!attachmentsRepo) throw new NotFoundError(`attachment ${attachmentId}`);
+      const att = attachmentsRepo.getById(id, attachmentId);
+      if (!att) throw new NotFoundError(`attachment ${attachmentId}`);
+      return att;
+    },
+
+    async progress(id, message, { step, totalSteps } = {}) {
       const cleaned = requireNonEmptyString(message, "message", MAX_PROGRESS_LEN);
       const existing = mustExist(id);
       if (existing.status !== TaskStatus.IN_PROGRESS) {
@@ -210,10 +239,21 @@ export const createTaskService = ({ repo, events }) => {
           `task ${id} is ${existing.status}, progress only valid when in_progress`
         );
       }
-      const updated = repo.progress(id, cleaned);
-      if (!updated) throw new ConflictError(`task ${id} progress not recorded`);
-      await emit(TaskEvents.PROGRESS, updated);
-      return updated;
+      if (step != null) {
+        if (!Number.isInteger(step) || step < 0) throw new ValidationError("step must be a non-negative integer");
+      }
+      if (totalSteps != null) {
+        if (!Number.isInteger(totalSteps) || totalSteps < 1) throw new ValidationError("total_steps must be a positive integer");
+      }
+      const result = repo.progress(id, cleaned, { step, totalSteps });
+      if (!result) throw new ConflictError(`task ${id} progress not recorded`);
+      await emit(TaskEvents.PROGRESS, { ...result.task, progressEntry: result.entry });
+      return result;
+    },
+
+    getProgressLog(id) {
+      mustExist(id);
+      return repo.getProgressLog(id);
     },
   };
 };

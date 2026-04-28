@@ -9,11 +9,15 @@ export const createMcpServer = ({
   adapterId,
   name = "mcp-taskbridge",
   version = "0.2.0",
+  extraTools = [],
 }) => {
   if (!service) throw new Error("service is required");
   const handlers = createToolHandlers({ service, adapterId });
   const server = new McpServer({ name, version });
   for (const tool of toolDefinitions(handlers)) {
+    server.registerTool(tool.name, tool.config, tool.run);
+  }
+  for (const tool of extraTools) {
     server.registerTool(tool.name, tool.config, tool.run);
   }
   return { server, handlers };
@@ -26,8 +30,8 @@ export const createMcpServer = ({
  * TASKBRIDGE_AGENT_ID still gets tagged correctly (e.g. Codex Desktop's
  * stdio path).
  */
-export const startStdioMcpServer = async ({ service, adapterId, logger }) => {
-  const { server, handlers } = createMcpServer({ service, adapterId });
+export const startStdioMcpServer = async ({ service, adapterId, logger, extraTools = [] }) => {
+  const { server, handlers } = createMcpServer({ service, adapterId, extraTools });
   const transport = new StdioServerTransport();
   await server.connect(transport);
   // McpServer wraps the low-level Server on `.server`; that's where
@@ -87,6 +91,7 @@ export const createHttpMcpHandler = ({
   fixedAdapterId = null,
   name,
   version,
+  extraTools = [],
 }) => {
   if (!service) throw new Error("service is required");
   if (!fixedAdapterId && !clientTracker) {
@@ -103,7 +108,7 @@ export const createHttpMcpHandler = ({
       adapterId = observed || clientTracker.resolve(req);
     }
 
-    const { server } = createMcpServer({ service, adapterId, name, version });
+    const { server } = createMcpServer({ service, adapterId, name, version, extraTools });
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: undefined, // stateless
     });

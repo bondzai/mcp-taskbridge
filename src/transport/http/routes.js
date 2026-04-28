@@ -1,9 +1,18 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import express from "express";
+import multer from "multer";
 import { runExternalChecks } from "../../core/external-checks.js";
 import { ConflictError, NotFoundError, ValidationError } from "../../core/service.js";
 import { SIGNATURE_HEADER, verifySignature } from "../../webhook/signer.js";
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024, files: 5 },
+  fileFilter: (_req, file, cb) => {
+    cb(null, ["application/pdf", "text/plain"].includes(file.mimetype));
+  },
+});
 
 const JSON_LIMIT = "1mb";
 
@@ -173,9 +182,27 @@ export const createRoutes = ({
     }
   });
 
-  router.post("/api/tasks", express.json({ limit: JSON_LIMIT }), async (req, res) => {
+  const parseTaskBody = (req, res, next) => {
+    const ct = req.headers["content-type"] || "";
+    if (ct.startsWith("multipart/form-data")) {
+      upload.array("files", 5)(req, res, (err) => {
+        if (err) return sendError(res, new ValidationError(err.message));
+        next();
+      });
+    } else {
+      express.json({ limit: JSON_LIMIT })(req, res, next);
+    }
+  };
+
+  router.post("/api/tasks", parseTaskBody, async (req, res) => {
     try {
-      const task = await service.create(req.body?.prompt);
+      const files = (req.files || []).map((f) => ({
+        filename: f.originalname,
+        mimeType: f.mimetype,
+        size: f.size,
+        content: f.buffer,
+      }));
+      const task = await service.create(req.body?.prompt, files.length > 0 ? files : undefined);
       return res.status(201).json(task);
     } catch (err) {
       return sendError(res, err);
@@ -191,6 +218,53 @@ export const createRoutes = ({
   router.get("/api/tasks/:id", (req, res) => {
     try {
       return res.json(service.get(req.params.id));
+    } catch (err) {
+      return sendError(res, err);
+    }
+  });
+
+  router.get("/api/tasks/:id/progress", (req, res) => {
+    try {
+      const entries = service.getProgressLog(req.params.id);
+      return res.json({ entries });
+    } catch (err) {
+      return sendError(res, err);
+    }
+  });
+
+  router.get("/api/tasks/:id/attachments", (req, res) => {
+    try {
+      return res.json({ attachments: service.getAttachments(req.params.id) });
+    } catch (err) {
+      return sendError(res, err);
+    }
+  });
+
+  router.get("/api/tasks/:id/attachments/:aid", (req, res) => {
+    try {
+      const att = service.getAttachmentContent(req.params.id, Number(req.params.aid));
+      res.set("Content-Type", att.mimeType);
+      res.set("Content-Disposition", `attachment; filename="${att.filename}"`);
+      res.set("Content-Length", String(att.size));
+      return res.send(att.content);
+    } catch (err) {
+      return sendError(res, err);
+    }
+  });
+
+  router.get("/api/tasks/:id/attachments/:aid/text", async (req, res) => {
+    try {
+      const att = service.getAttachmentContent(req.params.id, Number(req.params.aid));
+      let text;
+      if (att.mimeType === "text/plain") {
+        text = att.content.toString("utf8");
+      } else if (att.mimeType === "application/pdf") {
+        const pdfParse = (await import("pdf-parse")).default;
+        text = (await pdfParse(att.content)).text;
+      } else {
+        throw new ValidationError(`unsupported type for text extraction: ${att.mimeType}`);
+      }
+      return res.type("text/plain").send(text);
     } catch (err) {
       return sendError(res, err);
     }

@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en" data-bs-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Procurement Agent — Vendors</title>
+    <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet" />
+    <link href="/assets/app.css" rel="stylesheet" />
+  </head>
+  <body>
+    <div id="tb-chrome"></div>
+
+    <main class="tb-main" aria-labelledby="tb-page-title">
+      <div class="container">
+        <header class="tb-page-header">
+          <div>
+            <h1 id="tb-page-title"><i class="bi bi-building me-2" aria-hidden="true"></i>Vendors</h1>
+            <p>Manage your vendor directory, materials, and contact information.</p>
+          </div>
+          <div class="d-flex gap-2">
+            <button type="button" class="btn btn-outline-secondary btn-sm" id="vendor-import-btn">
+              <i class="bi bi-upload me-1"></i>Import
+            </button>
+            <button type="button" class="btn btn-primary" id="vendor-add-btn">
+              <i class="bi bi-plus-lg me-1"></i>Add Vendor
+            </button>
+          </div>
+        </header>
+
+        <!-- Toolbar -->
+        <section class="tb-toolbar" id="vendor-toolbar" aria-label="Vendor filters">
+          <div class="tb-search">
+            <i class="bi bi-search" aria-hidden="true"></i>
+            <label for="vendor-q" class="visually-hidden">Search vendors</label>
+            <input id="vendor-q" type="search" class="form-control"
+                   placeholder="Search by name, email, category..." />
+          </div>
+          <div class="form-check form-switch m-0 ms-1" title="Show inactive vendors">
+            <input class="form-check-input" type="checkbox" id="vendor-show-inactive" />
+            <label class="form-check-label small text-body-secondary" for="vendor-show-inactive">Inactive</label>
+          </div>
+          <button id="vendor-refresh" class="tb-icon-btn" title="Reload from server" aria-label="Reload vendors">
+            <i class="bi bi-arrow-clockwise" aria-hidden="true"></i>
+          </button>
+        </section>
+
+        <!-- Vendor list -->
+        <section id="vendor-list" aria-label="Vendors" aria-busy="true"></section>
+      </div>
+    </main>
+
+    <!-- Add/Edit Vendor modal -->
+    <div class="modal fade" id="vendor-modal" tabindex="-1" aria-hidden="true" aria-labelledby="vendor-modal-title">
+      <div class="modal-dialog modal-dialog-centered modal-lg">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title" id="vendor-modal-title">
+              <i class="bi bi-building me-2"></i><span id="vendor-modal-action">Add</span> Vendor
+            </h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+          </div>
+          <form id="vendor-form" novalidate>
+            <div class="modal-body">
+              <div class="row g-3">
+                <div class="col-md-6">
+                  <label for="vendor-name" class="form-label fw-semibold">Name <span class="text-danger">*</span></label>
+                  <input type="text" class="form-control" id="vendor-name" name="name" required />
+                  <div class="invalid-feedback">Vendor name is required.</div>
+                </div>
+                <div class="col-md-6">
+                  <label for="vendor-email" class="form-label fw-semibold">Email <span class="text-danger">*</span></label>
+                  <input type="email" class="form-control" id="vendor-email" name="email" required />
+                  <div class="invalid-feedback">A valid email is required.</div>
+                </div>
+                <div class="col-md-6">
+                  <label for="vendor-phone" class="form-label fw-semibold">Phone</label>
+                  <input type="tel" class="form-control" id="vendor-phone" name="phone" />
+                </div>
+                <div class="col-md-6">
+                  <label for="vendor-lead-time" class="form-label fw-semibold">Lead Time (days)</label>
+                  <input type="number" class="form-control" id="vendor-lead-time" name="lead_time_days" min="0" />
+                </div>
+                <div class="col-12">
+                  <label for="vendor-categories" class="form-label fw-semibold">Categories</label>
+                  <input type="text" class="form-control" id="vendor-categories" name="categories"
+                         placeholder="e.g. electronics, office-supplies (comma separated)" />
+                  <div class="form-text">Comma-separated list of supply categories.</div>
+                </div>
+                <div class="col-12">
+                  <label for="vendor-address" class="form-label fw-semibold">Address</label>
+                  <textarea class="form-control" id="vendor-address" name="address" rows="2"></textarea>
+                </div>
+                <div class="col-12">
+                  <label for="vendor-notes" class="form-label fw-semibold">Notes</label>
+                  <textarea class="form-control" id="vendor-notes" name="notes" rows="2"></textarea>
+                </div>
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+              <button type="submit" class="btn btn-primary" id="vendor-save-btn">
+                <i class="bi bi-check2 me-1"></i>Save
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <!-- Import modal -->
+    <div class="modal fade" id="vendor-import-modal" tabindex="-1" aria-hidden="true" aria-labelledby="vendor-import-title">
+      <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title" id="vendor-import-title">
+              <i class="bi bi-upload me-2"></i>Import Vendors
+            </h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+          </div>
+          <div class="modal-body">
+            <p class="text-body-secondary small">Upload a JSON file containing an array of vendor objects.</p>
+            <input type="file" class="form-control" id="vendor-import-file" accept=".json,application/json" />
+            <div id="vendor-import-preview" class="mt-2 small"></div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+            <button type="button" class="btn btn-primary" id="vendor-import-confirm" disabled>
+              <i class="bi bi-upload me-1"></i>Import
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <footer class="tb-footer">
+      <div class="container">
+        Procurement Agent · <a href="/" class="link-secondary">Dashboard</a>
+      </div>
+    </footer>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script type="module" src="/assets/vendors.js"></script>
+  </body>
+</html>

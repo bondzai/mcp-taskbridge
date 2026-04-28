@@ -19,6 +19,8 @@ const ANIM_WINDOW_MS = 2000;
 
 export const createTaskStore = () => {
   const tasks = new Map();
+  const progressLogs = new Map();  // taskId → Array of entries
+  const attachmentsMap = new Map(); // taskId → Array of attachment metadata
   const state = {
     // Filters
     search: "",
@@ -56,6 +58,8 @@ export const createTaskStore = () => {
     state.justCreated.delete(id);
     state.justDone.delete(id);
     state.justFailed.delete(id);
+    progressLogs.delete(id);
+    attachmentsMap.delete(id);
   };
 
   return {
@@ -67,6 +71,7 @@ export const createTaskStore = () => {
 
     upsert(task) {
       if (!task || !task.id) return;
+      if (task.attachments) attachmentsMap.set(task.id, task.attachments);
       tasks.set(task.id, task);
     },
     remove(id) {
@@ -120,6 +125,28 @@ export const createTaskStore = () => {
       let n = 0;
       for (const t of tasks.values()) if (t.status === "pending") n++;
       return n;
+    },
+
+    getProgressLog(id) {
+      return progressLogs.get(id) || [];
+    },
+    setProgressLog(id, entries) {
+      progressLogs.set(id, entries || []);
+    },
+    getAttachments(id) {
+      return attachmentsMap.get(id) || [];
+    },
+    setAttachments(id, list) {
+      attachmentsMap.set(id, list || []);
+    },
+
+    appendProgressEntry(id, entry) {
+      if (!entry) return;
+      const log = progressLogs.get(id) || [];
+      if (!log.some((e) => e.id === entry.id)) {
+        log.push(entry);
+        progressLogs.set(id, log);
+      }
     },
   };
 };
