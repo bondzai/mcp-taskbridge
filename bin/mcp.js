@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { config } from "../src/config.js";
-import { openDatabase } from "../src/core/db.js";
+import { createDatabase } from "../src/db/adapter.js";
 import { createEventBus } from "../src/core/events.js";
 import { createTasksRepository, createAttachmentsRepository } from "../src/core/repo.js";
 import { createTaskService } from "../src/core/service.js";
@@ -14,12 +14,30 @@ import {
   createRfqRepository,
   createVendorResponsesRepository,
   createStatusLogRepository,
+  createItemStatusLogRepository,
 } from "../src/procurement/repo.js";
 import { createProcurementService } from "../src/procurement/service.js";
 import { createProcurementToolHandlers, procurementToolDefinitions } from "../src/procurement/tools.js";
 
 const main = async () => {
-  const db = openDatabase(config.dbPath);
+  const dbDriver = process.env.DB_DRIVER || "sqlite";
+  const db = await createDatabase(dbDriver, {
+    path: config.dbPath,
+    url: process.env.DATABASE_URL,
+  });
+
+  if (dbDriver === "postgres") {
+    const { readFile } = await import("node:fs/promises");
+    const { join, dirname } = await import("node:path");
+    const { fileURLToPath: toPath } = await import("node:url");
+    const schemaPath = join(dirname(toPath(import.meta.url)), "../src/db/schema.sql");
+    await db.exec(await readFile(schemaPath, "utf8"));
+  } else {
+    const { SQLITE_SCHEMA, migrateSqlite } = await import("../src/db/sqlite-schema.js");
+    await db.exec(SQLITE_SCHEMA);
+    await migrateSqlite(db);
+  }
+
   const repo = createTasksRepository(db);
   const attachmentsRepo = createAttachmentsRepository(db);
   const events = createEventBus();
@@ -41,6 +59,7 @@ const main = async () => {
       rfq: createRfqRepository(db),
       vendorResponses: createVendorResponsesRepository(db),
       statusLog: createStatusLogRepository(db),
+      itemStatusLog: createItemStatusLogRepository(db),
     };
     const procService = createProcurementService({
       repos: procRepos,

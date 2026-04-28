@@ -36,9 +36,8 @@ CREATE TABLE IF NOT EXISTS purchase_requests (
   id                TEXT PRIMARY KEY,
   title             TEXT NOT NULL,
   status            TEXT NOT NULL CHECK (status IN (
-    'draft','pending_approval','approved','rejected',
-    'pending_sourcing','sourcing','sourced','rfq_pending','rfq_sending',
-    'rfq_sent','awaiting_replies','quotes_received','analysis','completed','cancelled'
+    'draft','pending_approval','pending',
+    'processing','failed','completed','cancelled'
   )),
   requested_by      TEXT,
   approved_by       TEXT,
@@ -130,8 +129,34 @@ CREATE TABLE IF NOT EXISTS pr_status_log (
   created_at      INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_pr_status_log_pr ON pr_status_log(pr_id);
+
+CREATE TABLE IF NOT EXISTS pr_item_status_log (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  line_item_id INTEGER NOT NULL REFERENCES pr_line_items(id) ON DELETE CASCADE,
+  pr_id        TEXT NOT NULL,
+  from_status  TEXT,
+  to_status    TEXT NOT NULL,
+  changed_by   TEXT,
+  note         TEXT,
+  created_at   INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_item_log_item ON pr_item_status_log(line_item_id);
+CREATE INDEX IF NOT EXISTS idx_item_log_pr ON pr_item_status_log(pr_id);
 `;
 
 export const migrateProcurement = (db) => {
   db.exec(PROCUREMENT_SCHEMA);
+
+  // Idempotent column additions for item-level statuses
+  const addCol = (table, col, type, dflt) => {
+    const cols = new Set(db.prepare(`PRAGMA table_info(${table})`).all().map(r => r.name));
+    if (!cols.has(col)) {
+      db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${type}${dflt != null ? ` DEFAULT ${dflt}` : ""}`);
+    }
+  };
+  addCol("pr_line_items", "status", "TEXT", "'draft'");
+  addCol("pr_line_items", "selected_vendor_id", "TEXT", null);
+  addCol("pr_line_items", "selected_price", "REAL", null);
+  addCol("pr_line_items", "po_number", "TEXT", null);
+  addCol("pr_line_items", "note", "TEXT", null);
 };

@@ -28,7 +28,7 @@ export const createProcurementToolHandlers = ({ service }) => {
 
   return {
     searchVendors: wrap(async ({ query, category, limit }) => {
-      const vendors = service.searchVendors(query, category, limit);
+      const vendors = await service.searchVendors(query, category, limit);
       return { count: vendors.length, vendors };
     }),
 
@@ -41,12 +41,12 @@ export const createProcurementToolHandlers = ({ service }) => {
     }),
 
     getPrLineItems: wrap(async ({ pr_id }) => {
-      const pr = service.getPr(pr_id);
+      const pr = await service.getPr(pr_id);
       return { prId: pr_id, lineItems: pr.lineItems || [] };
     }),
 
     listVendorMaterials: wrap(async ({ vendor_id }) => {
-      const materials = service.listVendorMaterials(vendor_id);
+      const materials = await service.listVendorMaterials(vendor_id);
       return { vendorId: vendor_id, count: materials.length, materials };
     }),
 
@@ -55,8 +55,18 @@ export const createProcurementToolHandlers = ({ service }) => {
       return { ok: true, pr: result.pr, shortlist: result.shortlist };
     }),
 
+    updateItemStatus: wrap(async ({ pr_id, item_id, status, note, vendor_id, price }) => {
+      const result = await service.updateItemStatus(pr_id, item_id, status, {
+        changedBy: "agent",
+        note: note ?? null,
+        selectedVendorId: vendor_id ?? null,
+        selectedPrice: price ?? null,
+      });
+      return { ok: true, item: result.item, pr: result.pr };
+    }),
+
     getPurchaseHistory: wrap(async ({ material_name, vendor_id, limit }) => {
-      const history = service.getPurchaseHistory({
+      const history = await service.getPurchaseHistory({
         materialName: material_name,
         vendorId: vendor_id,
         limit: limit ?? 20,
@@ -150,6 +160,26 @@ export const procurementToolDefinitions = (handlers) => [
       },
     },
     run: (args) => handlers.submitVendorShortlist(args),
+  },
+  {
+    name: "update_item_status",
+    config: {
+      title: "Update Item Status",
+      description:
+        "Update the status of a specific line item in a purchase request. " +
+        "Use after sourcing individual items.",
+      inputSchema: {
+        pr_id: z.string().describe("Purchase request id"),
+        item_id: z.number().int().positive().describe("Line item id"),
+        status: z.enum(["sourcing", "quoted", "selected", "ordered", "received", "cancelled"])
+          .describe("New status for the line item"),
+        note: z.string().max(500).optional().describe("Optional note about this status change"),
+        vendor_id: z.string().optional().describe("Vendor id — set when status is 'selected'"),
+        price: z.number().positive().optional()
+          .describe("Price — set when status is 'selected' or 'quoted'"),
+      },
+    },
+    run: (args) => handlers.updateItemStatus(args),
   },
   {
     name: "get_purchase_history",

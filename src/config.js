@@ -13,8 +13,8 @@ const parsePort = (value, fallback) => {
   return parsed;
 };
 
-const webHost = env.TASKBRIDGE_WEB_HOST || "127.0.0.1";
-const webPort = parsePort(env.TASKBRIDGE_WEB_PORT, 3000);
+const webHost = env.TASKBRIDGE_WEB_HOST || env.HOST || "0.0.0.0";
+const webPort = parsePort(env.PORT || env.TASKBRIDGE_WEB_PORT, 3000);
 
 export const config = {
   projectRoot,
@@ -25,6 +25,8 @@ export const config = {
   webhookUrl:
     env.TASKBRIDGE_WEBHOOK_URL || `http://${webHost}:${webPort}/webhooks/task-events`,
   agentId: env.TASKBRIDGE_AGENT_ID || "generic",
+  dbDriver: env.DB_DRIVER || "sqlite",
+  databaseUrl: env.DATABASE_URL || null,
 
   // Procurement — feature-gated
   procurement: {

@@ -23,26 +23,13 @@
         </header>
 
         <!-- Toolbar -->
-        <section class="tb-toolbar" aria-label="History filters">
-          <div class="tb-search">
-            <i class="bi bi-search" aria-hidden="true"></i>
-            <label for="history-material" class="visually-hidden">Search by material</label>
-            <input id="history-material" type="search" class="form-control"
-                   placeholder="Search by material name..." />
-          </div>
-          <div>
-            <label for="history-vendor" class="visually-hidden">Filter by vendor</label>
-            <select id="history-vendor" class="form-select form-select-sm">
-              <option value="">All vendors</option>
-            </select>
-          </div>
-          <button id="history-refresh" class="tb-icon-btn" title="Reload" aria-label="Reload history">
-            <i class="bi bi-arrow-clockwise" aria-hidden="true"></i>
-          </button>
-        </section>
+        <section id="history-toolbar" aria-label="History filters"></section>
 
         <!-- Results -->
         <section id="history-list" aria-label="Purchase history" aria-busy="true"></section>
+
+        <!-- Pagination -->
+        <nav id="history-pagination" class="tb-pagination" aria-label="History pagination"></nav>
       </div>
     </main>
 

@@ -66,22 +66,33 @@ const compose = (sections) =>
 
 /* ---------- Template definitions ---------- */
 
-const tplSolveOldest = () => compose([
-  `${FRAGMENTS.role} Pick up and complete ONE task from the pending queue.`,
+const tplSourceOldest = () => compose([
+  `${FRAGMENTS.role} Pick up and complete ONE sourcing task from the queue.`,
 
   "## Steps",
   [
-    "1. Call `list_pending_tasks`. If the list is empty, reply \"No pending tasks.\" and stop.",
+    "1. Call `list_pending_tasks`. If empty, reply \"No pending tasks.\" and stop.",
     "2. Pick the **oldest** task (smallest `createdAt`).",
     "3. Call `claim_task` with that task's `id`.",
-    "4. Read the task's `prompt` field carefully and do the work.",
-    "5. Call `report_progress` after every meaningful step — the user watches live. Keep each message under 200 characters.",
-    "6. Call `submit_result` with the `id` and a **well-formatted Markdown** result.",
-    "7. " + FRAGMENTS.failureRule,
+    "4. Read the `prompt` — it references a Purchase Request (PR) with items to source.",
+    "5. Call `get_purchase_request` with the PR id from the prompt to see all line items.",
+    "6. For each item, call `search_vendors` with the material name to find matching suppliers.",
+    "7. Call `get_vendor_details` to verify capabilities and check `get_purchase_history` for past pricing.",
+    "8. Call `report_progress` after each vendor search — the user watches live.",
+    "9. Call `submit_vendor_shortlist` with the PR id and your recommended vendor-item mappings.",
+    "10. Call `submit_result` with a Markdown summary of your findings.",
+    "11. " + FRAGMENTS.failureRule,
   ].join("\n"),
 
-  "## Tagging",
-  FRAGMENTS.taggingNote,
+  "## Available procurement tools",
+  [
+    "- `search_vendors(material_name, category?)` — find vendors for a material",
+    "- `get_vendor_details(vendor_id)` — full vendor profile + materials",
+    "- `get_purchase_request(pr_id)` — PR with all line items",
+    "- `get_purchase_history(material_name?, vendor_id?)` — past completed purchases",
+    "- `submit_vendor_shortlist(pr_id, shortlist[])` — submit sourcing results",
+    "- `update_item_status(pr_id, item_id, status, note?)` — update individual item status",
+  ].join("\n"),
 
   "## Result format",
   FRAGMENTS.resultFormat,
@@ -89,66 +100,62 @@ const tplSolveOldest = () => compose([
 
   "## Rules",
   [
-    "- " + FRAGMENTS.stateOnlyRule,
+    "- Find at least 2 vendors per item when possible for competitive quotes.",
+    "- Include reference prices from `search_vendors` in the shortlist.",
     "- Do **not** claim more than one task in this run.",
-    "- Do **not** modify tasks you did not claim.",
   ].join("\n"),
 ]);
 
-const tplSolveThis = ({ TASK_ID, PROMPT_PREVIEW }) => {
-  const id = String(TASK_ID || "").trim();
-  const preview = String(PROMPT_PREVIEW || "").trim();
+const tplSourcePr = ({ PR_ID }) => {
+  const id = String(PR_ID || "").trim();
   return compose([
-    `${FRAGMENTS.role} You must handle one specific task.`,
+    `${FRAGMENTS.role} Source vendors for a specific Purchase Request.`,
 
     "## Target",
-    `Task id: \`${id}\``,
+    `PR id: \`${id}\``,
 
     "## Steps",
     [
-      `1. Call \`get_task\` with id \`${id}\`. If its status is not \`pending\`, stop and report what the status is — do not try to claim an already-claimed task.`,
-      `2. Call \`claim_task\` with id \`${id}\`.`,
-      `3. Complete the work described in the task's \`prompt\` field. Interpret it charitably if ambiguous, but be explicit about your interpretation in the result.`,
-      `4. Call \`report_progress\` with id \`${id}\` after every meaningful step — the user watches live on the dashboard.`,
-      `5. Call \`submit_result\` with id \`${id}\` and a **well-formatted Markdown** answer.`,
-      "6. " + FRAGMENTS.failureRule,
+      `1. Call \`list_pending_tasks\` and find the sourcing task for PR \`${id}\`.`,
+      "2. Call `claim_task` with the task id.",
+      `3. Call \`get_purchase_request\` with PR id \`${id}\` to see all line items.`,
+      "4. For each line item, call `search_vendors` with the material name.",
+      "5. Call `get_vendor_details` for promising matches and `get_purchase_history` for pricing context.",
+      "6. Call `report_progress` after each vendor search.",
+      `7. Call \`submit_vendor_shortlist\` with PR id \`${id}\` and your recommendations.`,
+      "8. Call `submit_result` with a Markdown summary.",
+      "9. " + FRAGMENTS.failureRule,
     ].join("\n"),
-
-    "## Tagging",
-    FRAGMENTS.taggingNote,
-
-    "## Result format",
-    FRAGMENTS.resultFormat,
-    FRAGMENTS.metadataNudge,
 
     "## Rules",
     [
-      `- Only touch task \`${id}\`. Do not claim, modify, or submit any other task.`,
-      "- " + FRAGMENTS.stateOnlyRule,
+      "- Find at least 2 vendors per item when possible.",
+      "- Include reference prices in the shortlist.",
+      `- Only work on PR \`${id}\`.`,
     ].join("\n"),
 
-    preview ? `## Prompt preview (for context — \`get_task\` is authoritative)\n\n> ${preview.split("\n").join("\n> ")}` : null,
+    FRAGMENTS.metadataNudge,
   ]);
 };
 
 const tplTriage = () => compose([
-  "You are a triage assistant connected to the **procurement-agent** connector. Your job is to **categorise**, not to execute.",
+  `${FRAGMENTS.role} Review and categorise all pending sourcing tasks without claiming any.`,
 
   "## Steps",
   [
-    "1. Call `list_pending_tasks` to get every currently-pending task.",
-    "2. For each task, infer:",
-    "   - **type** — one of: research, summarise, code, data lookup, creative, other",
-    "   - **difficulty** — one of: trivial, moderate, hard",
-    "   - **one-line summary** — ≤ 80 characters, plain English",
-    "3. Return a single Markdown table with columns: `id (short) | type | difficulty | summary`.",
-    "   Use the first 8 characters of each task's `id` as the short id.",
+    "1. Call `list_pending_tasks` to get the queue.",
+    "2. For each task, call `get_purchase_request` with the PR id to see the items.",
+    "3. Categorise each PR by:",
+    "   - **urgency** — check deadline vs today",
+    "   - **complexity** — number of items, specialty materials",
+    "   - **estimated value** — rough total from reference prices",
+    "4. Return a Markdown table: `PR (short id) | Title | Items | Urgency | Complexity | Est. Value`.",
   ].join("\n"),
 
   "## Hard rules",
   [
     "- Do **not** call `claim_task`, `submit_result`, `fail_task`, or `report_progress`.",
-    "- This is a read-only pass. If the queue is empty, say so and stop.",
+    "- This is a read-only assessment. If the queue is empty, say so and stop.",
   ].join("\n"),
 ]);
 
@@ -162,7 +169,7 @@ const tplFailWithReason = ({ TASK_ID, REASON }) => {
     [
       `1. Call \`fail_task\` with \`id\`: \`${id}\` and \`reason\`: the exact text below, verbatim.`,
       "2. Do **not** claim, submit, or touch any other task.",
-      "3. After the tool call succeeds, reply with a single sentence confirming the failure.",
+      "3. After the tool call succeeds, reply confirming the failure.",
     ].join("\n"),
 
     "## Reason to pass to `fail_task`",
@@ -174,28 +181,27 @@ const tplFailWithReason = ({ TASK_ID, REASON }) => {
 
 export const PROMPT_TEMPLATES = [
   {
-    id: "solve-oldest",
-    name: "Solve oldest pending task",
-    description: "Claim the single oldest pending task and complete it end-to-end. Identity-neutral — agent labelling comes from your /mcp/<adapter> URL.",
-    icon: "bi-play-circle",
+    id: "source-oldest",
+    name: "Source oldest pending PR",
+    description: "Claim the oldest sourcing task, find vendors for all items, and submit a shortlist.",
+    icon: "bi-search",
     variables: [],
-    build: tplSolveOldest,
+    build: tplSourceOldest,
   },
   {
-    id: "solve-this",
-    name: "Solve this specific task",
-    description: "Claim a task by id and complete it. The id is pre-filled from the current task. Identity comes from your /mcp/<adapter> URL.",
+    id: "source-pr",
+    name: "Source a specific PR",
+    description: "Find vendors for a specific Purchase Request by id.",
     icon: "bi-bullseye",
     variables: [
-      { key: "TASK_ID", label: "Task id", placeholder: "e.g. 423b0b0d-...", required: true },
-      { key: "PROMPT_PREVIEW", label: "Prompt preview (optional)", placeholder: "pasted from the task card", required: false, textarea: true },
+      { key: "PR_ID", label: "PR id", placeholder: "e.g. 64cdd836-...", required: true },
     ],
-    build: tplSolveThis,
+    build: tplSourcePr,
   },
   {
     id: "triage",
-    name: "Triage the pending queue (read-only)",
-    description: "Categorise every pending task without claiming any — useful for planning.",
+    name: "Triage pending queue (read-only)",
+    description: "Assess all pending sourcing tasks — urgency, complexity, estimated value — without claiming any.",
     icon: "bi-clipboard-data",
     variables: [],
     build: tplTriage,
@@ -203,11 +209,11 @@ export const PROMPT_TEMPLATES = [
   {
     id: "fail-with-reason",
     name: "Fail a task with a reason",
-    description: "Mark a specific task as failed. Use when a task is unsafe, duplicate, or out of scope.",
+    description: "Mark a sourcing task as failed when it can't be completed.",
     icon: "bi-x-octagon",
     variables: [
       { key: "TASK_ID", label: "Task id", placeholder: "e.g. 423b0b0d-...", required: true },
-      { key: "REASON",  label: "Reason",  placeholder: "Why this task should be rejected", required: true, textarea: true },
+      { key: "REASON",  label: "Reason",  placeholder: "Why this task cannot be completed", required: true, textarea: true },
     ],
     build: tplFailWithReason,
   },

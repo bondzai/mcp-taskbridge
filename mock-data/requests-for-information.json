@@ -1,0 +1,27 @@
+[
+  {
+    "rfiNumber": "RFI-2024-0031",
+    "relatedPr": "PR-2024-0892",
+    "sentTo": "Open Market",
+    "issueDate": "2024-01-20",
+    "submissionDeadline": "2024-02-10",
+    "coordinatorId": "EMP-002",
+    "coordinatorEmail": "wiphar@abc.co.th",
+    "category": "IT Equipment",
+    "objective": "ABC Co., Ltd. is exploring options for procuring IT Equipment for the 5-person dev team. We need to understand vendor capabilities before issuing a formal RFQ.",
+    "informationRequested": [
+      "Experience supplying Laptop / IT Equipment to organizations (years in business, number of clients)",
+      "Brands and models available with specs (minimum 2 options)",
+      "After-sales services: warranty period, on-site service, response time",
+      "Approximate pricing (non-binding)",
+      "Certifications: ISO, safety standards",
+      "Company information: business registration, contacts, website"
+    ],
+    "submissionFormat": "PDF or Word Document",
+    "submissionEmail": "procurement@abc.co.th",
+    "notes": "This RFI is not a price solicitation. Submitting information incurs no cost. The company reserves the right to contact some or all respondents for additional information. Expected outcome: Shortlist of 3-5 vendors for subsequent RFQ.",
+    "status": "closed",
+    "responsesReceived": 6,
+    "shortlistedVendors": ["VND-001", "VND-002", "VND-003", "VND-004"]
+  }
+]

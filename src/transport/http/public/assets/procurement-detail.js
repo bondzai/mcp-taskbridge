@@ -12,24 +12,21 @@ import { html, raw, toString } from "./html.js";
 const STATUS_ICONS = {
   draft: "bi-pencil",
   pending_approval: "bi-hourglass-split",
-  approved: "bi-check-circle",
-  rejected: "bi-x-circle",
-  pending_sourcing: "bi-search",
-  sourcing: "bi-arrow-repeat",
-  sourced: "bi-check2-all",
-  rfq_pending: "bi-envelope",
-  rfq_sending: "bi-send",
-  rfq_sent: "bi-envelope-check",
-  awaiting_replies: "bi-clock-history",
-  quotes_received: "bi-receipt",
-  analysis: "bi-graph-up",
-  completed: "bi-trophy",
-  po_issued: "bi-file-earmark-check",
-  delivered: "bi-box-seam-fill",
+  pending: "bi-clock",
+  processing: "bi-arrow-repeat",
+  failed: "bi-exclamation-triangle",
+  completed: "bi-check-circle",
   cancelled: "bi-slash-circle",
 };
 
-const TERMINAL_STATUSES = new Set(["rejected", "cancelled", "delivered"]);
+const TERMINAL_STATUSES = new Set(["completed", "cancelled"]);
+
+/* Item status lifecycle */
+const ITEM_STATUS_LABELS = {
+  draft: "Draft", sourcing: "Sourcing", quoted: "Quoted",
+  selected: "Selected", ordered: "Ordered", received: "Received",
+  cancelled: "Cancelled",
+};
 
 /* ---------- API ---------- */
 
@@ -71,7 +68,7 @@ const loadPr = async () => {
     } catch { timeline = []; }
 
     // Load comparison if applicable
-    const compStatuses = new Set(["quotes_received", "po_issued", "delivered"]);
+    const compStatuses = new Set(["processing", "completed"]);
     if (compStatuses.has(pr.status)) {
       try {
         comparison = await api(`/api/procurement/prs/${id}/comparison`);
@@ -168,16 +165,24 @@ const renderActions = () => {
       <button type="button" class="btn btn-success" data-action="approve">
         <i class="bi bi-check-lg me-1"></i>Approve
       </button>
-      <button type="button" class="btn btn-danger" data-action="reject">
+      <button type="button" class="btn btn-outline-danger" data-action="reject">
         <i class="bi bi-x-lg me-1"></i>Reject
       </button>
     `);
   }
 
-  if (pr.status === "approved") {
+  // Duplicate — available on any PR
+  btns.push(html`
+    <button type="button" class="btn btn-outline-secondary" data-action="duplicate">
+      <i class="bi bi-copy me-1"></i>Duplicate
+    </button>
+  `);
+
+  // Reprocess — available on processing/completed/failed (not draft/pending_approval)
+  if (["processing", "pending", "completed", "failed"].includes(pr.status)) {
     btns.push(html`
-      <button type="button" class="btn btn-primary" data-action="start-sourcing">
-        <i class="bi bi-search me-1"></i>Start Sourcing
+      <button type="button" class="btn btn-outline-primary" data-action="reprocess">
+        <i class="bi bi-arrow-counterclockwise me-1"></i>Reprocess
       </button>
     `);
   }
@@ -226,12 +231,43 @@ const renderTimeline = () => {
   `);
 };
 
-/* ---------- Render: line items ---------- */
+/* ---------- Render: line items (rich table with status controls) ---------- */
+
+const itemStatusDot = (status) => html`
+  <span class="tb-item-status">
+    <span class="tb-item-dot tb-item-dot-${status || "draft"}"></span>
+    ${ITEM_STATUS_LABELS[status] || status || "draft"}
+  </span>
+`;
+
+const itemActions = (item) => {
+  const s = item.status || "draft";
+  switch (s) {
+    case "quoted":
+      return html`<button type="button" class="btn btn-sm btn-outline-primary tb-item-action" data-item-action="select-vendor" data-item-id="${item.id}"><i class="bi bi-check2 me-1"></i>Select vendor</button>`;
+    case "selected":
+      return html`<button type="button" class="btn btn-sm btn-outline-primary tb-item-action" data-item-action="create-po" data-item-id="${item.id}"><i class="bi bi-file-earmark-plus me-1"></i>Create PO</button>`;
+    case "ordered":
+      return html`<button type="button" class="btn btn-sm btn-outline-success tb-item-action" data-item-action="mark-received" data-item-id="${item.id}"><i class="bi bi-box-seam me-1"></i>Mark received</button>`;
+    default:
+      return "";
+  }
+};
+
+const itemDetailInfo = (item) => {
+  const parts = [];
+  if (item.selectedVendorId) parts.push(html`<span><i class="bi bi-building me-1"></i>Vendor: ${item.selectedVendorId}</span>`);
+  if (item.selectedPrice != null) parts.push(html`<span><i class="bi bi-currency-dollar me-1"></i>${item.selectedPrice}</span>`);
+  if (item.poNumber) parts.push(html`<span><i class="bi bi-file-earmark me-1"></i>PO: ${item.poNumber}</span>`);
+  if (item.note) parts.push(html`<span><i class="bi bi-chat-left-text me-1"></i>${item.note}</span>`);
+  if (parts.length === 0) return "";
+  return html`<div class="tb-item-detail">${parts}</div>`;
+};
 
 const renderItems = () => {
   const el = document.getElementById("pr-items-table");
   if (!el) return;
-  const items = pr.items || [];
+  const items = pr.lineItems || pr.items || [];
 
   if (items.length === 0) {
     el.innerHTML = toString(html`<div class="small text-body-secondary">No line items.</div>`);
@@ -239,25 +275,48 @@ const renderItems = () => {
   }
 
   el.innerHTML = toString(html`
-    <div class="table-responsive">
-      <table class="table table-sm align-middle mb-0">
+    <div class="tb-items-table-wrap">
+      <table class="tb-items-table">
         <thead>
           <tr>
-            <th scope="col">#</th>
-            <th scope="col">Material</th>
-            <th scope="col">Specification</th>
-            <th scope="col" class="text-end">Qty</th>
-            <th scope="col">Unit</th>
+            <th>#</th>
+            <th>Material</th>
+            <th>Spec</th>
+            <th class="text-end">Qty</th>
+            <th>Unit</th>
+            <th>Status</th>
+            <th>Actions</th>
+            <th></th>
           </tr>
         </thead>
         <tbody>
           ${items.map((item, i) => html`
-            <tr>
+            <tr data-item-row="${item.id}">
               <td class="text-body-secondary">${i + 1}</td>
-              <td>${item.material_name || "--"}</td>
+              <td>
+                ${item.materialName || item.material_name || "--"}
+                ${itemDetailInfo(item)}
+              </td>
               <td>${item.specification || "--"}</td>
               <td class="text-end tb-mono">${item.quantity != null ? item.quantity : "--"}</td>
               <td>${item.unit || "--"}</td>
+              <td>${itemStatusDot(item.status)}</td>
+              <td>${itemActions(item)}</td>
+              <td>
+                <button type="button" class="btn btn-sm btn-link p-0" data-item-action="toggle-timeline" data-item-id="${item.id}" title="Show history">
+                  <i class="bi bi-clock-history"></i>
+                </button>
+              </td>
+            </tr>
+            <tr class="d-none" data-item-timeline-row="${item.id}">
+              <td colspan="8">
+                <div class="tb-item-timeline" id="item-timeline-${item.id}">
+                  <div class="small text-body-secondary">Loading...</div>
+                </div>
+              </td>
+            </tr>
+            <tr class="d-none" data-item-form-row="${item.id}">
+              <td colspan="8" id="item-form-${item.id}"></td>
             </tr>
           `)}
         </tbody>
@@ -296,7 +355,7 @@ const renderRfqStatus = () => {
   if (!section || !el) return;
 
   const rfqStatuses = pr.rfq_statuses || pr.rfq_status || [];
-  const showStatuses = new Set(["rfq_sent", "rfq_sending", "rfq_pending", "quotes_received", "awaiting_replies", "po_issued", "delivered", "completed"]);
+  const showStatuses = new Set(["processing", "processing", "completed"]);
   const show = rfqStatuses.length > 0 && showStatuses.has(pr.status);
   if (!show) { el.innerHTML = toString(html`<div class="small text-body-secondary">No RFQs sent yet.</div>`); return; }
 
@@ -386,6 +445,147 @@ const renderAll = () => {
   renderComparison();
 };
 
+/* ---------- Item action handlers ---------- */
+
+const updateItemStatus = async (itemId, status, extra = {}) => {
+  const id = prId();
+  if (!id) return;
+  try {
+    await api(`/api/procurement/prs/${id}/items/${itemId}/status`, {
+      method: "PATCH",
+      body: JSON.stringify({ status, ...extra }),
+    });
+    toast(`Item ${status}`);
+    await loadPr();
+  } catch (err) {
+    toast(err.message || "Failed to update item status");
+    console.error("[item-status]", err);
+  }
+};
+
+const showVendorSelectForm = (itemId) => {
+  const formRow = document.querySelector(`[data-item-form-row="${itemId}"]`);
+  if (!formRow) return;
+  formRow.classList.remove("d-none");
+
+  const items = pr.lineItems || pr.items || [];
+  const item = items.find((i) => i.id === itemId || String(i.id) === String(itemId));
+  const shortlist = pr.shortlist || [];
+
+  const container = document.getElementById(`item-form-${itemId}`);
+  if (!container) return;
+
+  container.innerHTML = toString(html`
+    <div class="tb-item-inline-form" data-vendor-form="${itemId}">
+      <select data-field="vendor">
+        <option value="">Select vendor...</option>
+        ${shortlist.map((v) => html`<option value="${v.id || v.vendor_id}">${v.name || v.vendor_name || v.id}</option>`)}
+      </select>
+      <input type="number" step="0.01" placeholder="Price" data-field="price"
+        value="${item && item.selectedPrice != null ? item.selectedPrice : ""}" />
+      <button type="button" class="btn btn-sm btn-primary" data-item-action="confirm-vendor" data-item-id="${itemId}">Confirm</button>
+      <button type="button" class="btn btn-sm btn-outline-secondary" data-item-action="cancel-form" data-item-id="${itemId}">Cancel</button>
+    </div>
+  `);
+};
+
+const showPoForm = (itemId) => {
+  const formRow = document.querySelector(`[data-item-form-row="${itemId}"]`);
+  if (!formRow) return;
+  formRow.classList.remove("d-none");
+
+  const container = document.getElementById(`item-form-${itemId}`);
+  if (!container) return;
+
+  container.innerHTML = toString(html`
+    <div class="tb-item-inline-form" data-po-form="${itemId}">
+      <input type="text" placeholder="PO Number" data-field="po" />
+      <button type="button" class="btn btn-sm btn-primary" data-item-action="confirm-po" data-item-id="${itemId}">Confirm</button>
+      <button type="button" class="btn btn-sm btn-outline-secondary" data-item-action="cancel-form" data-item-id="${itemId}">Cancel</button>
+    </div>
+  `);
+};
+
+const loadItemTimeline = async (itemId) => {
+  const id = prId();
+  const el = document.getElementById(`item-timeline-${itemId}`);
+  if (!el) return;
+  try {
+    const tl = await api(`/api/procurement/prs/${id}/items/${itemId}/timeline`);
+    const entries = tl.entries || tl.timeline || [];
+    if (entries.length === 0) {
+      el.innerHTML = toString(html`<div class="small text-body-secondary">No history yet.</div>`);
+      return;
+    }
+    el.innerHTML = toString(html`
+      ${entries.map((e) => html`
+        <div class="tb-item-timeline-entry">
+          ${itemStatusDot(e.toStatus || e.to_status)}
+          <span class="text-body-secondary">${relativeSpan(e.createdAt || e.created_at)}</span>
+          ${e.changedBy || e.changed_by ? html`<span class="text-body-secondary"><i class="bi bi-person me-1"></i>${e.changedBy || e.changed_by}</span>` : ""}
+          ${e.note ? html`<span>${e.note}</span>` : ""}
+        </div>
+      `)}
+    `);
+  } catch {
+    el.innerHTML = toString(html`<div class="small text-body-secondary">Failed to load timeline.</div>`);
+  }
+};
+
+const handleItemAction = async (action, itemId, target) => {
+  switch (action) {
+    case "select-vendor":
+      showVendorSelectForm(itemId);
+      break;
+
+    case "confirm-vendor": {
+      const form = document.querySelector(`[data-vendor-form="${itemId}"]`);
+      if (!form) return;
+      const vendorId = form.querySelector("[data-field='vendor']")?.value;
+      const price = parseFloat(form.querySelector("[data-field='price']")?.value);
+      if (!vendorId) { toast("Please select a vendor"); return; }
+      await updateItemStatus(itemId, "selected", {
+        selectedVendorId: vendorId,
+        ...(isNaN(price) ? {} : { selectedPrice: price }),
+      });
+      break;
+    }
+
+    case "create-po":
+      showPoForm(itemId);
+      break;
+
+    case "confirm-po": {
+      const form = document.querySelector(`[data-po-form="${itemId}"]`);
+      if (!form) return;
+      const poNumber = form.querySelector("[data-field='po']")?.value?.trim();
+      if (!poNumber) { toast("Please enter a PO number"); return; }
+      await updateItemStatus(itemId, "ordered", { poNumber });
+      break;
+    }
+
+    case "mark-received":
+      if (!confirm("Mark this item as received?")) return;
+      await updateItemStatus(itemId, "received");
+      break;
+
+    case "cancel-form": {
+      const formRow = document.querySelector(`[data-item-form-row="${itemId}"]`);
+      if (formRow) formRow.classList.add("d-none");
+      break;
+    }
+
+    case "toggle-timeline": {
+      const timelineRow = document.querySelector(`[data-item-timeline-row="${itemId}"]`);
+      if (!timelineRow) return;
+      const isHidden = timelineRow.classList.contains("d-none");
+      timelineRow.classList.toggle("d-none");
+      if (isHidden) loadItemTimeline(itemId);
+      break;
+    }
+  }
+};
+
 /* ---------- Action handlers ---------- */
 
 const handleAction = async (action) => {
@@ -415,6 +615,19 @@ const handleAction = async (action) => {
         if (!confirm("Cancel this purchase request? This cannot be undone.")) return;
         await api(`/api/procurement/prs/${id}/cancel`, { method: "POST" });
         toast("PR cancelled");
+        break;
+
+      case "duplicate": {
+        const dup = await api(`/api/procurement/prs/${id}/duplicate`, { method: "POST" });
+        toast("PR duplicated as draft");
+        window.location.href = `/procurement-detail.html?id=${dup.id}`;
+        return;
+      }
+
+      case "reprocess":
+        if (!confirm("Reset this PR and re-run sourcing? Items will be reset to draft.")) return;
+        await api(`/api/procurement/prs/${id}/reprocess`, { method: "POST" });
+        toast("PR queued for re-sourcing");
         break;
 
       default:
@@ -458,6 +671,20 @@ const bindEvents = () => {
     });
   }
 
+  // Delegated item action clicks
+  const itemsSection = document.getElementById("pr-items-section");
+  if (itemsSection) {
+    itemsSection.addEventListener("click", (e) => {
+      const target = e.target.closest("[data-item-action]");
+      if (!target) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const action = target.getAttribute("data-item-action");
+      const itemId = target.getAttribute("data-item-id");
+      if (action && itemId) handleItemAction(action, itemId, target);
+    });
+  }
+
   // Reject modal confirm
   const rejectBtn = document.getElementById("pr-reject-confirm");
   if (rejectBtn) {
@@ -489,9 +716,9 @@ const bindSse = () => {
   const es = new EventSource("/api/events");
 
   const prEvents = [
-    "pr.updated", "pr.approved", "pr.rejected", "pr.submitted",
-    "pr.cancelled", "pr.sourcing", "pr.rfq_sent", "pr.quotes_received",
-    "pr.po_issued", "pr.delivered",
+    "pr.updated", "pr.approved", "pr.submitted",
+    "pr.cancelled", "pr.completed", "pr.processing",
+    "pr.failed", "pr.sourcing_started", "item.status_changed",
   ];
 
   for (const ev of prEvents) {

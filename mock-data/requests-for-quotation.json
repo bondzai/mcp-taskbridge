@@ -1,0 +1,50 @@
+[
+  {
+    "rfqNumber": "RFQ-2024-0078",
+    "relatedPr": "PR-2024-0892",
+    "relatedRfi": "RFI-2024-0031",
+    "sentTo": ["VND-001", "VND-002", "VND-003", "VND-004"],
+    "issueDate": "2024-02-15",
+    "submissionDeadline": "2024-02-28T17:00:00",
+    "validityPeriod": "30 days from submission date",
+    "category": "IT Equipment",
+    "lineItems": [
+      {
+        "itemNumber": 1,
+        "itemName": "Laptop",
+        "specification": "CPU: Intel Core i7-1355U, RAM: 16GB DDR5, SSD: 512GB NVMe, Display: 14\" FHD IPS",
+        "quantity": 5,
+        "unit": "unit"
+      },
+      {
+        "itemNumber": 2,
+        "itemName": "Monitor 27\"",
+        "specification": "Resolution: 3840x2160 (4K), Panel: IPS, Interface: USB-C + HDMI, Warranty: 3 years",
+        "quantity": 5,
+        "unit": "unit"
+      },
+      {
+        "itemNumber": 3,
+        "itemName": "Wireless Headset",
+        "specification": "Driver: 40mm, Freq: 20Hz-20kHz, BT: 5.0, Battery: 30hr, ANC",
+        "quantity": 10,
+        "unit": "set"
+      },
+      {
+        "itemNumber": 4,
+        "itemName": "Docking Station",
+        "specification": "USB-C 100W PD, HDMI x2 (4K), USB-A x3, LAN 1Gbps, Audio",
+        "quantity": 5,
+        "unit": "unit"
+      }
+    ],
+    "quotationConditions": [
+      "Prices must include VAT (7%) and be itemized per unit",
+      "Specify warranty and on-site service terms",
+      "Payment terms: Net 30 days after receiving goods and GRN",
+      "Must be able to deliver within 21 business days after receiving PO",
+      "If unable to match exact spec, provide equivalent alternatives with justification"
+    ],
+    "status": "closed"
+  }
+]

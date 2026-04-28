@@ -1,0 +1,58 @@
+[
+  {
+    "employeeId": "EMP-001",
+    "name": "Somchai Jaidi",
+    "role": "IT Engineer",
+    "department": "Information Technology (IT)",
+    "email": "somchai.j@abc.co.th",
+    "canApprove": false
+  },
+  {
+    "employeeId": "EMP-002",
+    "name": "Wipha Rakdi",
+    "role": "Procurement Coordinator",
+    "department": "Procurement",
+    "email": "wiphar@abc.co.th",
+    "canApprove": false
+  },
+  {
+    "employeeId": "EMP-003",
+    "name": "Wichai Mankhong",
+    "role": "Warehouse Supervisor",
+    "department": "Warehouse",
+    "email": "wichai.m@abc.co.th",
+    "canApprove": false
+  },
+  {
+    "employeeId": "EMP-004",
+    "name": "Department Head - IT",
+    "role": "Department Head",
+    "department": "Information Technology (IT)",
+    "email": "it.head@abc.co.th",
+    "canApprove": true
+  },
+  {
+    "employeeId": "EMP-005",
+    "name": "Department Manager - IT",
+    "role": "Department Manager",
+    "department": "Information Technology (IT)",
+    "email": "it.manager@abc.co.th",
+    "canApprove": true
+  },
+  {
+    "employeeId": "EMP-006",
+    "name": "Procurement Manager",
+    "role": "Procurement Manager",
+    "department": "Procurement",
+    "email": "procurement.mgr@abc.co.th",
+    "canApprove": true
+  },
+  {
+    "employeeId": "EMP-007",
+    "name": "CFO",
+    "role": "Chief Financial Officer",
+    "department": "Finance",
+    "email": "cfo@abc.co.th",
+    "canApprove": true
+  }
+]

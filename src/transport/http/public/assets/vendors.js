@@ -1,9 +1,11 @@
 /* ============================================================
    Vendor management page — CRUD, search, materials, import.
+   Refactored to use createListControls for toolbar/pagination.
    ============================================================ */
 
 import { renderChrome, loadSettings, applyTheme, toast } from "./chrome.js";
 import { html, raw, toString } from "./html.js";
+import { createListControls } from "./list-controls.js";
 
 /* ---------- API ---------- */
 
@@ -22,12 +24,62 @@ const api = async (url, init = {}) => {
 const state = {
   vendors: [],
   loading: true,
-  search: "",
-  showInactive: false,
   expandedMaterials: new Set(), // vendor ids with materials panel open
   expandedKpis: new Set(), // vendor ids with KPI panel open
   kpiCache: new Map(), // vendor id -> kpi data
   editingId: null, // vendor id being edited in modal
+};
+
+/* ---------- List controls ---------- */
+
+let controls = null;
+
+const getCategories = () => {
+  const cats = new Set();
+  for (const v of state.vendors) {
+    if (Array.isArray(v.categories)) {
+      for (const c of v.categories) cats.add(c);
+    }
+  }
+  return [...cats].sort();
+};
+
+const rebuildControls = () => {
+  const categories = getCategories();
+  controls.render({
+    views: ["list", "grid"],
+    defaultView: "list",
+    sorts: [
+      { value: "name-asc", label: "Name A-Z" },
+      { value: "name-desc", label: "Name Z-A" },
+      { value: "materials", label: "Most materials" },
+      { value: "lead-time", label: "Lead time (fastest)" },
+    ],
+    defaultSort: "name-asc",
+    filters: [
+      {
+        id: "category",
+        label: "Category",
+        options: [
+          { value: "", label: "All categories" },
+          ...categories.map((c) => ({ value: c, label: c })),
+        ],
+      },
+      {
+        id: "active",
+        label: "Status",
+        options: [
+          { value: "active", label: "Active" },
+          { value: "inactive", label: "Inactive" },
+          { value: "all", label: "All" },
+        ],
+      },
+    ],
+    pageSize: 10,
+    pageSizes: [10, 25, 50],
+    totalItems: filtered().length,
+    searchPlaceholder: "Search name, email, category...",
+  });
 };
 
 /* ---------- Load ---------- */
@@ -36,13 +88,11 @@ const loadVendors = async () => {
   try {
     state.loading = true;
     render();
-    const params = new URLSearchParams();
-    if (state.search.trim()) params.set("q", state.search.trim());
-    if (state.showInactive) params.set("active", "all");
-    else params.set("active", "true");
-    const body = await api(`/api/procurement/vendors?${params}`);
+    // Load all vendors (active + inactive) so client-side filtering works
+    const body = await api("/api/procurement/vendors?active=all");
     state.vendors = body.vendors || [];
     state.loading = false;
+    rebuildControls();
     render();
   } catch (err) {
     state.loading = false;
@@ -52,12 +102,27 @@ const loadVendors = async () => {
   }
 };
 
-/* ---------- Filtered list ---------- */
+/* ---------- Filtering / sorting / pagination ---------- */
 
 const filtered = () => {
-  const q = state.search.trim().toLowerCase();
+  const cs = controls ? controls.getState() : { search: "", filters: {} };
+  const q = (cs.search || "").trim().toLowerCase();
+  const catFilter = cs.filters.category || "";
+  const activeFilter = cs.filters.active || "active";
   let list = [...state.vendors];
-  if (!state.showInactive) list = list.filter((v) => v.active !== false);
+
+  // Active filter
+  if (activeFilter === "active") list = list.filter((v) => v.active !== false);
+  else if (activeFilter === "inactive") list = list.filter((v) => v.active === false);
+
+  // Category filter
+  if (catFilter) {
+    list = list.filter((v) =>
+      Array.isArray(v.categories) && v.categories.some((c) => c === catFilter)
+    );
+  }
+
+  // Search
   if (q) {
     list = list.filter((v) =>
       (v.name || "").toLowerCase().includes(q) ||
@@ -65,12 +130,43 @@ const filtered = () => {
       (v.categories || []).some((c) => c.toLowerCase().includes(q))
     );
   }
+
+  // Sort
+  const sort = cs.sort || "name-asc";
+  list.sort((a, b) => {
+    switch (sort) {
+      case "name-asc":
+        return (a.name || "").localeCompare(b.name || "");
+      case "name-desc":
+        return (b.name || "").localeCompare(a.name || "");
+      case "materials":
+        return (b.material_count ?? 0) - (a.material_count ?? 0);
+      case "lead-time":
+        return (a.lead_time_days ?? 999) - (b.lead_time_days ?? 999);
+      default:
+        return 0;
+    }
+  });
+
   return list;
+};
+
+const paged = () => {
+  const cs = controls ? controls.getState() : { page: 1, pageSize: 10 };
+  const list = filtered();
+  const total = list.length;
+  const pageSize = cs.pageSize || 10;
+  const pageCount = Math.max(1, Math.ceil(total / pageSize));
+  let page = cs.page || 1;
+  if (page > pageCount) page = pageCount;
+  const start = (page - 1) * pageSize;
+  const end = Math.min(start + pageSize, total);
+  return { list, slice: list.slice(start, end), total, pageCount, start, end };
 };
 
 /* ---------- Render helpers ---------- */
 
-const vendorCard = (v) => {
+const vendorCardList = (v) => {
   const cats = Array.isArray(v.categories) ? v.categories : [];
   const materialsExpanded = state.expandedMaterials.has(v.id);
   const isInactive = v.active === false;
@@ -161,6 +257,37 @@ const vendorCard = (v) => {
           </div>
         ` : ""}
         ${state.expandedKpis.has(v.id) ? renderKpiSection(v.id) : ""}
+      </div>
+    </div>
+  `;
+};
+
+const vendorCardGrid = (v) => {
+  const cats = Array.isArray(v.categories) ? v.categories : [];
+  const isInactive = v.active === false;
+  const matCount = v.material_count ?? v.materials?.length ?? 0;
+
+  return html`
+    <div class="tb-vendor-card-grid ${isInactive ? "tb-vendor-inactive" : ""}" data-vendor-id="${v.id}">
+      <div class="tb-vendor-card-name">
+        ${v.name || "Unnamed"}
+        ${isInactive ? html`<span class="tb-pill tb-pill-cancelled" style="font-size:0.7rem"><i class="bi bi-slash-circle"></i>inactive</span>` : ""}
+      </div>
+      ${v.email ? html`<div class="tb-vendor-card-email">${v.email}</div>` : ""}
+      ${cats.length > 0 ? html`<div class="tb-vendor-card-cats">${cats.join(", ")}</div>` : ""}
+      <div class="tb-vendor-card-meta">
+        ${matCount} material${matCount !== 1 ? "s" : ""}${v.lead_time_days != null ? html` &middot; ${v.lead_time_days}d lead time` : ""}
+      </div>
+      <div class="tb-vendor-card-actions">
+        <button type="button" class="btn btn-outline-info btn-sm" data-action="toggle-kpis" data-id="${v.id}">
+          <i class="bi bi-graph-up me-1"></i>KPIs
+        </button>
+        <button type="button" class="btn btn-outline-primary btn-sm" data-action="edit-vendor" data-id="${v.id}">
+          <i class="bi bi-pencil me-1"></i>Edit
+        </button>
+        <button type="button" class="btn btn-outline-secondary btn-sm" data-action="toggle-materials" data-id="${v.id}">
+          <i class="bi bi-box me-1"></i>Materials
+        </button>
       </div>
     </div>
   `;
@@ -280,15 +407,30 @@ const render = () => {
     return;
   }
 
-  const list = filtered();
-  if (list.length === 0) {
+  const view = paged();
+
+  // Update total in controls for pagination
+  if (controls) {
+    controls.setState({ totalItems: view.total });
+  }
+
+  if (view.total === 0) {
     listEl.innerHTML = toString(emptyState());
     return;
   }
 
-  listEl.innerHTML = toString(html`
-    <div class="tb-vendor-grid">${list.map(vendorCard)}</div>
-  `);
+  const cs = controls ? controls.getState() : { view: "list" };
+  const isGrid = cs.view === "grid";
+
+  if (isGrid) {
+    listEl.innerHTML = toString(html`
+      <div class="tb-grid">${view.slice.map(vendorCardGrid)}</div>
+    `);
+  } else {
+    listEl.innerHTML = toString(html`
+      <div class="tb-list">${view.slice.map(vendorCardList)}</div>
+    `);
+  }
 };
 
 /* ---------- Modal helpers ---------- */
@@ -542,30 +684,6 @@ const executeImport = async () => {
 /* ---------- Event wiring ---------- */
 
 const bindEvents = () => {
-  // Toolbar search
-  const searchEl = document.getElementById("vendor-q");
-  if (searchEl) {
-    searchEl.addEventListener("input", (e) => {
-      state.search = e.target.value;
-      render();
-    });
-  }
-
-  // Inactive toggle
-  const inactiveEl = document.getElementById("vendor-show-inactive");
-  if (inactiveEl) {
-    inactiveEl.addEventListener("change", (e) => {
-      state.showInactive = e.target.checked;
-      loadVendors();
-    });
-  }
-
-  // Refresh
-  const refreshBtn = document.getElementById("vendor-refresh");
-  if (refreshBtn) {
-    refreshBtn.addEventListener("click", () => loadVendors());
-  }
-
   // Add vendor button
   const addBtn = document.getElementById("vendor-add-btn");
   if (addBtn) {
@@ -622,6 +740,14 @@ const boot = () => {
   const settings = loadSettings();
   applyTheme(settings.theme);
   renderChrome();
+
+  controls = createListControls({
+    storageKey: "vendors",
+    toolbarContainer: document.getElementById("vendor-toolbar"),
+    paginationContainer: document.getElementById("vendor-pagination"),
+    onUpdate: () => render(),
+  });
+
   bindEvents();
   render();
   loadVendors();

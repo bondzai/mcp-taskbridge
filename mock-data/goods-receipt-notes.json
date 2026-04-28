@@ -1,0 +1,59 @@
+[
+  {
+    "grnNumber": "GRN-2024-0521",
+    "poReference": "PO-2024-1102",
+    "vendorId": "VND-001",
+    "receiptDate": "2024-03-28T14:30:00",
+    "receivedById": "EMP-003",
+    "receiptLocation": "Warehouse Floor 1, Zone B",
+    "inspectionItems": [
+      {
+        "itemNumber": 1,
+        "itemName": "Laptop Intel i7",
+        "orderedQuantity": 5,
+        "receivedQuantity": 5,
+        "rejectedQuantity": 0,
+        "condition": "normal",
+        "remarks": "Seal intact, all units complete"
+      },
+      {
+        "itemNumber": 2,
+        "itemName": "Monitor 27\" 4K",
+        "orderedQuantity": 5,
+        "receivedQuantity": 5,
+        "rejectedQuantity": 0,
+        "condition": "normal",
+        "remarks": "Boxes have no scratches"
+      },
+      {
+        "itemNumber": 3,
+        "itemName": "Wireless Headset",
+        "orderedQuantity": 10,
+        "receivedQuantity": 10,
+        "rejectedQuantity": 0,
+        "condition": "normal",
+        "remarks": "Bluetooth pairing tested and confirmed"
+      },
+      {
+        "itemNumber": 4,
+        "itemName": "Docking Station",
+        "orderedQuantity": 5,
+        "receivedQuantity": 4,
+        "rejectedQuantity": 1,
+        "condition": "partial",
+        "remarks": "1 unit with damaged box, under investigation. Vendor to send replacement within 3 business days (by 2024-04-02)."
+      }
+    ],
+    "threeWayMatchStatus": {
+      "po": { "status": "match", "reference": "PO-2024-1102" },
+      "grn": { "status": "received", "note": "4 items received, 1 item pending resolution" },
+      "invoice": { "status": "waiting" }
+    },
+    "signatures": [
+      { "role": "Warehouse Staff", "employeeId": "EMP-003" },
+      { "role": "IT Department (Inspector)", "employeeId": "EMP-001" },
+      { "role": "Inventory Manager", "employeeId": null }
+    ],
+    "status": "received_partial"
+  }
+]

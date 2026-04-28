@@ -1,5 +1,5 @@
 import { ValidationError, NotFoundError, ConflictError } from "../core/service.js";
-import { PrStatus, TERMINAL_PR_STATUSES, ALL_PR_STATUSES, TERMINAL_RFQ_STATUSES } from "./status.js";
+import { PrStatus, ItemStatus, TERMINAL_PR_STATUSES, ALL_PR_STATUSES, TERMINAL_RFQ_STATUSES, ITEM_TERMINAL } from "./status.js";
 import { ProcurementEvents } from "./events.js";
 
 const MAX_TITLE_LEN = 500;
@@ -39,36 +39,39 @@ export const createProcurementService = ({ repos, events, taskService }) => {
   if (!repos) throw new Error("repos is required");
   if (!events) throw new Error("events bus is required");
 
-  const { vendors, purchaseRequests, rfq, vendorResponses, statusLog } = repos;
+  const { vendors, purchaseRequests, rfq, vendorResponses, statusLog, itemStatusLog } = repos;
 
   const emit = (event, data) => events.emit(event, data);
 
-  const mustExistPr = (id) => {
+  // RFQ payloads ready for email service (stored until Pub/Sub is wired)
+  const rfqPayloadStore = new Map();
+
+  const mustExistPr = async (id) => {
     if (typeof id !== "string" || id.trim() === "") {
       throw new ValidationError("purchase request id is required");
     }
-    const pr = purchaseRequests.getById(id);
+    const pr = await purchaseRequests.getById(id);
     if (!pr) throw new NotFoundError(id);
     return pr;
   };
 
-  const mustExistVendor = (id) => {
+  const mustExistVendor = async (id) => {
     if (typeof id !== "string" || id.trim() === "") {
       throw new ValidationError("vendor id is required");
     }
-    const vendor = vendors.getById(id);
+    const vendor = await vendors.getById(id);
     if (!vendor) throw new NotFoundError(id);
     return vendor;
   };
 
-  const transitionPr = (id, fromStatus, toStatus, extra = {}) => {
-    const updated = purchaseRequests.transition(id, fromStatus, toStatus, extra);
+  const transitionPr = async (id, fromStatus, toStatus, extra = {}) => {
+    const updated = await purchaseRequests.transition(id, fromStatus, toStatus, extra);
     if (!updated) {
       throw new ConflictError(
         `purchase request ${id} could not transition from ${fromStatus} to ${toStatus}`
       );
     }
-    statusLog.insert(id, fromStatus, toStatus, extra.changedBy ?? null, extra.reason ?? null);
+    await statusLog.insert(id, fromStatus, toStatus, extra.changedBy ?? null, extra.reason ?? null);
     return updated;
   };
 
@@ -79,6 +82,30 @@ export const createProcurementService = ({ repos, events, taskService }) => {
     const unit = requireString(item.unit, "unit", MAX_UNIT_LEN);
     const notes = optionalString(item.notes, "notes", MAX_NOTES_LEN);
     return { materialName, specification, quantity, unit, notes };
+  };
+
+  const VALID_ITEM_TRANSITIONS = {
+    [ItemStatus.DRAFT]: new Set([ItemStatus.SOURCING, ItemStatus.CANCELLED]),
+    [ItemStatus.SOURCING]: new Set([ItemStatus.QUOTED, ItemStatus.CANCELLED]),
+    [ItemStatus.QUOTED]: new Set([ItemStatus.SELECTED, ItemStatus.CANCELLED]),
+    [ItemStatus.SELECTED]: new Set([ItemStatus.ORDERED, ItemStatus.CANCELLED]),
+    [ItemStatus.ORDERED]: new Set([ItemStatus.RECEIVED, ItemStatus.CANCELLED]),
+    [ItemStatus.RECEIVED]: new Set(),
+    [ItemStatus.CANCELLED]: new Set(),
+  };
+
+  const recomputePrStatus = async (prId) => {
+    const pr = await purchaseRequests.getById(prId);
+    if (!pr || ["draft", "pending_approval", "cancelled", "completed"].includes(pr.status)) return pr;
+    const items = await purchaseRequests.getLineItems(prId);
+    const active = items.filter(i => i.status !== "cancelled");
+    if (active.length === 0) return transitionPr(prId, pr.status, "cancelled");
+    let newStatus = pr.status;
+    if (active.every(i => ["received"].includes(i.status))) newStatus = "completed";
+    else if (active.some(i => ["sourcing", "quoted", "selected", "ordered"].includes(i.status))) newStatus = "processing";
+    else if (active.every(i => i.status === "draft")) newStatus = "pending";
+    if (newStatus !== pr.status) return transitionPr(prId, pr.status, newStatus);
+    return pr;
   };
 
   return {
@@ -94,31 +121,31 @@ export const createProcurementService = ({ repos, events, taskService }) => {
 
       let pr;
       if (cleanItems.length > 0) {
-        pr = purchaseRequests.insertWithItems(
+        pr = await purchaseRequests.insertWithItems(
           cleanTitle, cleanRequestedBy, cleanDeadline, cleanNotes, cleanItems
         );
       } else {
-        pr = purchaseRequests.insert(cleanTitle, cleanRequestedBy, cleanDeadline, cleanNotes);
+        pr = await purchaseRequests.insert(cleanTitle, cleanRequestedBy, cleanDeadline, cleanNotes);
         pr.lineItems = [];
       }
 
-      statusLog.insert(pr.id, null, PrStatus.DRAFT, cleanRequestedBy, null);
+      await statusLog.insert(pr.id, null, PrStatus.DRAFT, cleanRequestedBy, null);
       await emit(ProcurementEvents.PR_CREATED, pr);
       return pr;
     },
 
-    getPr(id) {
-      const pr = mustExistPr(id);
-      pr.shortlist = purchaseRequests.getShortlist(id);
-      pr.rfqEmails = rfq.listByPr(id);
+    async getPr(id) {
+      const pr = await mustExistPr(id);
+      pr.shortlist = await purchaseRequests.getShortlist(id);
+      pr.rfqEmails = await rfq.listByPr(id);
       return pr;
     },
 
-    listPrs({ status, search, limit } = {}) {
+    async listPrs({ status, search, limit } = {}) {
       if (status && !ALL_PR_STATUSES.has(status)) {
         throw new ValidationError(`invalid status: ${status}`);
       }
-      return purchaseRequests.listAll(
+      return await purchaseRequests.listAll(
         status ?? null,
         search ?? null,
         clampLimit(limit, 100, 500)
@@ -126,7 +153,7 @@ export const createProcurementService = ({ repos, events, taskService }) => {
     },
 
     async updateDraft(id, patch) {
-      const pr = mustExistPr(id);
+      const pr = await mustExistPr(id);
       if (pr.status !== PrStatus.DRAFT) {
         throw new ConflictError(`PR ${id} is ${pr.status}, can only edit drafts`);
       }
@@ -135,108 +162,135 @@ export const createProcurementService = ({ repos, events, taskService }) => {
       if (patch.notes != null) cleanPatch.notes = optionalString(patch.notes, "notes", MAX_NOTES_LEN);
       if (patch.deadline != null) cleanPatch.deadline = Number(patch.deadline);
 
-      const updated = purchaseRequests.updateDraft(id, cleanPatch);
+      const updated = await purchaseRequests.updateDraft(id, cleanPatch);
       if (!updated) throw new ConflictError(`PR ${id} could not be updated`);
       return updated;
     },
 
     async addLineItem(prId, item) {
-      const pr = mustExistPr(prId);
+      const pr = await mustExistPr(prId);
       if (pr.status !== PrStatus.DRAFT) {
         throw new ConflictError(`PR ${prId} is ${pr.status}, can only add items to drafts`);
       }
       const clean = validateLineItem(item);
-      return purchaseRequests.addLineItem(prId, clean);
+      return await purchaseRequests.addLineItem(prId, clean);
     },
 
     async updateLineItem(prId, itemId, patch) {
-      const pr = mustExistPr(prId);
+      const pr = await mustExistPr(prId);
       if (pr.status !== PrStatus.DRAFT) {
         throw new ConflictError(`PR ${prId} is ${pr.status}, can only edit items in drafts`);
       }
-      return purchaseRequests.updateLineItem(prId, itemId, patch);
+      return await purchaseRequests.updateLineItem(prId, itemId, patch);
     },
 
     async removeLineItem(prId, itemId) {
-      const pr = mustExistPr(prId);
+      const pr = await mustExistPr(prId);
       if (pr.status !== PrStatus.DRAFT) {
         throw new ConflictError(`PR ${prId} is ${pr.status}, can only remove items from drafts`);
       }
-      const ok = purchaseRequests.removeLineItem(prId, itemId);
+      const ok = await purchaseRequests.removeLineItem(prId, itemId);
       if (!ok) throw new NotFoundError(`line item ${itemId}`);
       return { deleted: true };
     },
 
     async submitForApproval(id) {
-      const pr = mustExistPr(id);
+      const pr = await mustExistPr(id);
       if (pr.status !== PrStatus.DRAFT) {
         throw new ConflictError(`PR ${id} is ${pr.status}, must be draft to submit`);
       }
       if (!pr.lineItems || pr.lineItems.length === 0) {
         throw new ValidationError("cannot submit PR with no line items");
       }
-      const updated = transitionPr(id, PrStatus.DRAFT, PrStatus.PENDING_APPROVAL);
+      const updated = await transitionPr(id, PrStatus.DRAFT, PrStatus.PENDING_APPROVAL);
       await emit(ProcurementEvents.PR_SUBMITTED, updated);
       return updated;
     },
 
     async approve(id, approvedBy) {
-      mustExistPr(id);
+      await mustExistPr(id);
       const cleanApprover = requireString(approvedBy, "approved_by", 200);
-      const updated = transitionPr(id, PrStatus.PENDING_APPROVAL, PrStatus.APPROVED, {
+      const updated = await transitionPr(id, PrStatus.PENDING_APPROVAL, PrStatus.PENDING, {
         approvedBy: cleanApprover,
         changedBy: cleanApprover,
       });
       await emit(ProcurementEvents.PR_APPROVED, updated);
-      return updated;
+      // Create sourcing task so agent can pick it up from queue
+      await this.startSourcing(id);
+      // Return the PR in "approved" state — it moves to "processing"
+      // only when the agent claims the task
+      return mustExistPr(id);
     },
 
     async reject(id, reason) {
-      mustExistPr(id);
+      await mustExistPr(id);
       const cleanReason = requireString(reason, "reason", MAX_REASON_LEN);
-      const updated = transitionPr(id, PrStatus.PENDING_APPROVAL, PrStatus.REJECTED, {
+      const updated = await transitionPr(id, PrStatus.PENDING_APPROVAL, PrStatus.CANCELLED, {
         rejectedReason: cleanReason,
-        reason: cleanReason,
+        reason: `Rejected: ${cleanReason}`,
       });
-      await emit(ProcurementEvents.PR_REJECTED, updated);
+      await emit(ProcurementEvents.PR_CANCELLED, updated);
       return updated;
     },
 
     async startSourcing(id) {
-      const pr = mustExistPr(id);
-      if (pr.status !== PrStatus.APPROVED) {
+      const pr = await mustExistPr(id);
+      if (pr.status !== PrStatus.PENDING) {
         throw new ConflictError(`PR ${id} is ${pr.status}, must be approved to start sourcing`);
       }
 
-      // Create a sourcing task via the existing task service
       let task = null;
       if (taskService) {
-        const lineItems = pr.lineItems || purchaseRequests.getLineItems(id);
+        const lineItems = pr.lineItems || await purchaseRequests.getLineItems(id);
         const itemSummary = lineItems
           .map((i) => `${i.quantity} ${i.unit} of ${i.materialName}`)
           .join(", ");
         const prompt =
           `Sourcing task for PR "${pr.title}" (${id}).\n` +
           `Find vendors for: ${itemSummary}.\n` +
-          `Use search_vendors to find suitable vendors, then submit_vendor_shortlist ` +
-          `with your recommendations.`;
-        task = await taskService.create(prompt);
+          `Use search_vendors, get_purchase_request, and get_vendor_details to find suitable vendors.\n` +
+          `Call report_progress after each step.\n` +
+          `Then call submit_vendor_shortlist with your recommendations.`;
+        task = await taskService.create(prompt, { type: "sourcing", prId: id });
       }
 
-      const updated = transitionPr(id, PrStatus.APPROVED, PrStatus.PENDING_SOURCING, {
-        sourcingTaskId: task?.id ?? null,
-        changedBy: "system",
+      // Stay "approved" — PR is now in the sourcing queue.
+      // Moves to "processing" when the agent claims the task.
+      await purchaseRequests.transition(id, PrStatus.PENDING, PrStatus.PENDING, { sourcingTaskId: task?.id ?? null });
+      await statusLog.insert(id, PrStatus.PENDING, PrStatus.PENDING, "system", "Sourcing task queued");
+
+      await emit(ProcurementEvents.PR_SOURCING_STARTED, { ...pr, sourcingTaskId: task?.id ?? null, task });
+      return { pr: await mustExistPr(id), task };
+    },
+
+    async onTaskClaimed(prId) {
+      const pr = await mustExistPr(prId);
+      if (pr.status !== PrStatus.PENDING) return pr;
+
+      const updated = await transitionPr(prId, PrStatus.PENDING, PrStatus.PROCESSING, {
+        changedBy: "agent",
       });
-      await emit(ProcurementEvents.PR_SOURCING_STARTED, { ...updated, task });
-      return { pr: updated, task };
+
+      const lineItems = await purchaseRequests.getLineItems(prId);
+      for (const item of lineItems) {
+        if (item.status === ItemStatus.DRAFT) {
+          await purchaseRequests.updateItemStatus(prId, item.id, ItemStatus.SOURCING, {});
+          if (itemStatusLog) {
+            await itemStatusLog.insert(item.id, prId, ItemStatus.DRAFT, ItemStatus.SOURCING, "agent", "Agent claimed sourcing task");
+          }
+        }
+      }
+
+      await emit(ProcurementEvents.PR_SOURCING_STARTED, updated);
+      return updated;
     },
 
     async submitShortlist(prId, shortlist) {
-      const pr = mustExistPr(prId);
-      // Allow submission during sourcing or pending_sourcing (agent may submit before system transitions)
-      if (pr.status !== PrStatus.SOURCING && pr.status !== PrStatus.PENDING_SOURCING) {
+      const pr = await mustExistPr(prId);
+      // Allow submission during processing or approved (agent may submit before system transitions)
+      if (pr.status !== PrStatus.PROCESSING && pr.status !== PrStatus.PENDING) {
         throw new ConflictError(
-          `PR ${prId} is ${pr.status}, must be in sourcing or pending_sourcing to submit shortlist`
+          `PR ${prId} is ${pr.status}, must be in processing or approved to submit shortlist`
         );
       }
       if (!Array.isArray(shortlist) || shortlist.length === 0) {
@@ -245,25 +299,41 @@ export const createProcurementService = ({ repos, events, taskService }) => {
       // Validate each entry has a vendorId
       for (const entry of shortlist) {
         if (!entry.vendorId) throw new ValidationError("each shortlist entry must have vendorId");
-        mustExistVendor(entry.vendorId);
+        await mustExistVendor(entry.vendorId);
       }
 
-      const entries = purchaseRequests.insertShortlist(prId, shortlist);
-      const fromStatus = pr.status;
-      const updated = transitionPr(prId, fromStatus, PrStatus.SOURCED, {
-        changedBy: "agent",
-      });
-      await emit(ProcurementEvents.PR_SOURCED, { ...updated, shortlist: entries });
-      return { pr: updated, shortlist: entries };
+      const entries = await purchaseRequests.insertShortlist(prId, shortlist);
+
+      // Transition shortlisted items to "quoted"
+      const lineItems = await purchaseRequests.getLineItems(prId);
+      for (const entry of shortlist) {
+        if (entry.lineItemId) {
+          const item = lineItems.find(i => i.id === entry.lineItemId);
+          if (item && item.status !== ItemStatus.QUOTED && item.status !== ItemStatus.CANCELLED) {
+            await purchaseRequests.updateItemStatus(prId, item.id, ItemStatus.QUOTED, {
+              selectedVendorId: entry.vendorId ?? null,
+              selectedPrice: entry.referencePrice ?? null,
+            });
+            if (itemStatusLog) {
+              await itemStatusLog.insert(item.id, prId, item.status, ItemStatus.QUOTED, "agent", entry.notes ?? null);
+            }
+          }
+        }
+      }
+
+      // Recompute PR status based on item states
+      const updatedPr = (await recomputePrStatus(prId)) || pr;
+      await emit(ProcurementEvents.PR_SOURCED, { ...updatedPr, shortlist: entries });
+      return { pr: updatedPr, shortlist: entries };
     },
 
     async cancel(id, reason) {
-      const pr = mustExistPr(id);
+      const pr = await mustExistPr(id);
       if (TERMINAL_PR_STATUSES.has(pr.status)) {
         throw new ConflictError(`PR ${id} is ${pr.status}, cannot cancel a terminal PR`);
       }
       const cleanReason = optionalString(reason, "reason", MAX_REASON_LEN);
-      const updated = transitionPr(id, pr.status, PrStatus.CANCELLED, {
+      const updated = await transitionPr(id, pr.status, PrStatus.CANCELLED, {
         changedBy: "user",
         reason: cleanReason,
       });
@@ -271,10 +341,107 @@ export const createProcurementService = ({ repos, events, taskService }) => {
       return updated;
     },
 
+    async duplicatePr(id) {
+      const source = await mustExistPr(id);
+      const items = source.lineItems || await purchaseRequests.getLineItems(id);
+      const cleanItems = items.map(i => ({
+        materialName: i.materialName,
+        specification: i.specification,
+        quantity: i.quantity,
+        unit: i.unit,
+        notes: i.notes,
+      }));
+      let pr;
+      if (cleanItems.length > 0) {
+        pr = await purchaseRequests.insertWithItems(`${source.title} (copy)`, source.requestedBy, source.deadline, source.notes, cleanItems);
+      } else {
+        pr = await purchaseRequests.insert(`${source.title} (copy)`, source.requestedBy, source.deadline, source.notes);
+        pr.lineItems = [];
+      }
+      await statusLog.insert(pr.id, null, PrStatus.DRAFT, "system", `Duplicated from PR ${id}`);
+      await emit(ProcurementEvents.PR_CREATED, pr);
+      return pr;
+    },
+
+    async reprocessPr(id) {
+      const pr = await mustExistPr(id);
+      if (pr.status === PrStatus.DRAFT || pr.status === PrStatus.PENDING_APPROVAL) {
+        throw new ConflictError(`PR ${id} is ${pr.status}, nothing to reprocess`);
+      }
+      const items = pr.lineItems || await purchaseRequests.getLineItems(id);
+      for (const item of items) {
+        if (item.status !== "cancelled") {
+          await purchaseRequests.updateItemStatus(id, item.id, "draft", {});
+          if (itemStatusLog) {
+            await itemStatusLog.insert(item.id, id, item.status, "draft", "system", "Reprocessing PR");
+          }
+        }
+      }
+      const updated = await transitionPr(id, pr.status, PrStatus.PENDING, {
+        changedBy: "system",
+        reason: "Reprocessing — reset for re-sourcing",
+      });
+      await this.startSourcing(id);
+      await emit(ProcurementEvents.PR_SOURCING_STARTED, updated);
+      return await mustExistPr(id);
+    },
+
+    /* ──── Item Status ──── */
+
+    async updateItemStatus(prId, itemId, newStatus, { changedBy, note, selectedVendorId, selectedPrice, poNumber } = {}) {
+      const pr = await mustExistPr(prId);
+      const item = await purchaseRequests.getLineItem(prId, itemId);
+      if (!item) throw new NotFoundError(`line item ${itemId} in PR ${prId}`);
+
+      // Validate newStatus is a valid ItemStatus value
+      const allItemStatuses = new Set(Object.values(ItemStatus));
+      if (!allItemStatuses.has(newStatus)) {
+        throw new ValidationError(`invalid item status: ${newStatus}`);
+      }
+
+      // Validate transition
+      const allowed = VALID_ITEM_TRANSITIONS[item.status];
+      if (!allowed || !allowed.has(newStatus)) {
+        throw new ConflictError(
+          `item ${itemId} cannot transition from ${item.status} to ${newStatus}`
+        );
+      }
+
+      const updated = await purchaseRequests.updateItemStatus(prId, itemId, newStatus, {
+        selectedVendorId: selectedVendorId ?? null,
+        selectedPrice: selectedPrice ?? null,
+        poNumber: poNumber ?? null,
+        note: note ?? null,
+      });
+
+      if (itemStatusLog) {
+        await itemStatusLog.insert(itemId, prId, item.status, newStatus, changedBy ?? null, note ?? null);
+      }
+
+      const updatedPr = await recomputePrStatus(prId);
+      await emit(ProcurementEvents.ITEM_STATUS_CHANGED, {
+        prId,
+        itemId,
+        fromStatus: item.status,
+        toStatus: newStatus,
+        pr: updatedPr,
+      });
+
+      return { item: updated, pr: updatedPr };
+    },
+
+    async getItemTimeline(prId, itemId) {
+      await mustExistPr(prId);
+      const item = await purchaseRequests.getLineItem(prId, itemId);
+      if (!item) throw new NotFoundError(`line item ${itemId} in PR ${prId}`);
+      if (!itemStatusLog) return [];
+      return await itemStatusLog.listByItem(itemId);
+    },
+
     /* ──── RFQ Management ──── */
 
     async createRfqEmails(prId, rfqPlan) {
-      mustExistPr(prId);
+      await mustExistPr(prId);
       if (!Array.isArray(rfqPlan) || rfqPlan.length === 0) {
         throw new ValidationError("rfqPlan must be a non-empty array");
       }
@@ -283,7 +450,7 @@ export const createProcurementService = ({ repos, events, taskService }) => {
         if (!plan.vendorId || !plan.toEmail) {
           throw new ValidationError("each rfqPlan entry must have vendorId and toEmail");
         }
-        const rfqEmail = rfq.insert({
+        const rfqEmail = await rfq.insert({
           prId,
           vendorId: plan.vendorId,
           toEmail: plan.toEmail,
@@ -295,18 +462,26 @@ export const createProcurementService = ({ repos, events, taskService }) => {
       return created;
     },
 
+    async storeRfqPayloads(prId, payloads) {
+      rfqPayloadStore.set(prId, { payloads, createdAt: Date.now() });
+    },
+
+    getRfqPayloads(prId) {
+      return rfqPayloadStore.get(prId) || null;
+    },
+
     async updateRfqStatus(rfqId, status, metadata = {}) {
-      const existing = rfq.getById(rfqId);
+      const existing = await rfq.getById(rfqId);
       if (!existing) throw new NotFoundError(rfqId);
-      const updated = rfq.updateStatus(rfqId, status, metadata);
+      const updated = await rfq.updateStatus(rfqId, status, metadata);
       await emit(ProcurementEvents.RFQ_STATUS_UPDATED, updated);
       return updated;
     },
 
     async recordVendorResponse(rfqId, data) {
-      const rfqEmail = rfq.getById(rfqId);
+      const rfqEmail = await rfq.getById(rfqId);
       if (!rfqEmail) throw new NotFoundError(rfqId);
-      const response = vendorResponses.insert({
+      const response = await vendorResponses.insert({
         rfqId,
         prId: rfqEmail.prId,
         vendorId: rfqEmail.vendorId,
@@ -317,144 +492,141 @@ export const createProcurementService = ({ repos, events, taskService }) => {
     },
 
     async checkPrCompletion(prId) {
-      const pr = mustExistPr(prId);
-      const rfqEmails = rfq.listByPr(prId);
+      const pr = await mustExistPr(prId);
+      const rfqEmails = await rfq.listByPr(prId);
       if (rfqEmails.length === 0) return pr;
 
       const allTerminal = rfqEmails.every((r) => TERMINAL_RFQ_STATUSES.has(r.status));
       if (!allTerminal) return pr;
 
-      // If all RFQs are terminal, transition PR to quotes_received
-      if (pr.status === PrStatus.AWAITING_REPLIES || pr.status === PrStatus.RFQ_SENT) {
-        const updated = transitionPr(prId, pr.status, PrStatus.QUOTES_RECEIVED, {
-          changedBy: "system",
-        });
-        await emit(ProcurementEvents.PR_QUOTES_RECEIVED, updated);
-        return updated;
+      // If all RFQs are terminal, recompute PR status from item states
+      if (pr.status === PrStatus.PROCESSING) {
+        const updated = await recomputePrStatus(prId);
+        return updated || pr;
       }
       return pr;
     },
 
     /* ──── Queries ──── */
 
-    getTimeline(prId) {
-      mustExistPr(prId);
-      return statusLog.listByPr(prId);
+    async getTimeline(prId) {
+      await mustExistPr(prId);
+      return await statusLog.listByPr(prId);
     },
 
-    getComparison(prId) {
-      const pr = mustExistPr(prId);
-      const responses = vendorResponses.listByPr(prId);
+    async getComparison(prId) {
+      const pr = await mustExistPr(prId);
+      const responses = await vendorResponses.listByPr(prId);
       const lineItems = pr.lineItems || [];
-      const rfqEmails = rfq.listByPr(prId);
+      const rfqEmails = await rfq.listByPr(prId);
 
       // Build a matrix: lineItem x vendor
-      const matrix = lineItems.map((item) => {
-        const quotes = responses
-          .filter((r) => r.lineItemId === item.id)
-          .map((r) => {
-            const rfqEmail = rfqEmails.find((e) => e.id === r.rfqId);
-            const vendor = vendors.getById(r.vendorId);
-            return {
-              vendorId: r.vendorId,
-              vendorName: vendor?.name ?? "Unknown",
-              vendorEmail: rfqEmail?.toEmail ?? null,
-              unitPrice: r.unitPrice,
-              totalPrice: r.totalPrice,
-              leadTimeDays: r.leadTimeDays,
-              currency: r.currency,
-              availability: r.availability,
-            };
+      const matrix = [];
+      for (const item of lineItems) {
+        const quotes = [];
+        for (const r of responses.filter((r) => r.lineItemId === item.id)) {
+          const rfqEmail = rfqEmails.find((e) => e.id === r.rfqId);
+          const vendor = await vendors.getById(r.vendorId);
+          quotes.push({
+            vendorId: r.vendorId,
+            vendorName: vendor?.name ?? "Unknown",
+            vendorEmail: rfqEmail?.toEmail ?? null,
+            unitPrice: r.unitPrice,
+            totalPrice: r.totalPrice,
+            leadTimeDays: r.leadTimeDays,
+            currency: r.currency,
+            availability: r.availability,
           });
-        return {
+        }
+        matrix.push({
           lineItemId: item.id,
           materialName: item.materialName,
           specification: item.specification,
           quantity: item.quantity,
           unit: item.unit,
           quotes,
-        };
-      });
+        });
+      }
 
       return { prId, matrix };
     },
 
     /* ──── Vendor Management (delegated to repo) ──── */
 
-    createVendor(data) {
+    async createVendor(data) {
       if (!data.name) throw new ValidationError("vendor name is required");
       if (!data.email) throw new ValidationError("vendor email is required");
-      return vendors.insert(data);
+      return await vendors.insert(data);
     },
 
-    getVendor(id) {
-      const vendor = mustExistVendor(id);
-      vendor.materials = vendors.listMaterials(id);
+    async getVendor(id) {
+      const vendor = await mustExistVendor(id);
+      vendor.materials = await vendors.listMaterials(id);
       return vendor;
     },
 
-    listVendors(opts) {
-      return vendors.listAll(opts);
+    async listVendors(opts) {
+      return await vendors.listAll(opts);
     },
 
-    updateVendor(id, patch) {
-      mustExistVendor(id);
-      return vendors.update(id, patch);
+    async updateVendor(id, patch) {
+      await mustExistVendor(id);
+      return await vendors.update(id, patch);
     },
 
-    deactivateVendor(id) {
-      mustExistVendor(id);
-      return vendors.deactivate(id);
+    async deactivateVendor(id) {
+      await mustExistVendor(id);
+      return await vendors.deactivate(id);
     },
 
-    activateVendor(id) {
-      mustExistVendor(id);
-      return vendors.activate(id);
+    async activateVendor(id) {
+      await mustExistVendor(id);
+      return await vendors.activate(id);
     },
 
-    addVendorMaterial(vendorId, material) {
-      mustExistVendor(vendorId);
+    async addVendorMaterial(vendorId, material) {
+      await mustExistVendor(vendorId);
       if (!material.materialName) throw new ValidationError("material_name is required");
-      return vendors.insertMaterial(vendorId, material);
+      return await vendors.insertMaterial(vendorId, material);
     },
 
-    updateVendorMaterial(vendorId, materialId, patch) {
-      mustExistVendor(vendorId);
-      const existing = vendors.getMaterialById(vendorId, materialId);
+    async updateVendorMaterial(vendorId, materialId, patch) {
+      await mustExistVendor(vendorId);
+      const existing = await vendors.getMaterialById(vendorId, materialId);
       if (!existing) throw new NotFoundError(`material ${materialId}`);
-      return vendors.updateMaterial(vendorId, materialId, patch);
+      return await vendors.updateMaterial(vendorId, materialId, patch);
     },
 
-    deleteVendorMaterial(vendorId, materialId) {
-      mustExistVendor(vendorId);
-      const ok = vendors.deleteMaterial(vendorId, materialId);
+    async deleteVendorMaterial(vendorId, materialId) {
+      await mustExistVendor(vendorId);
+      const ok = await vendors.deleteMaterial(vendorId, materialId);
       if (!ok) throw new NotFoundError(`material ${materialId}`);
       return { deleted: true };
     },
 
-    listVendorMaterials(vendorId) {
-      mustExistVendor(vendorId);
-      return vendors.listMaterials(vendorId);
+    async listVendorMaterials(vendorId) {
+      await mustExistVendor(vendorId);
+      return await vendors.listMaterials(vendorId);
     },
 
-    searchVendors(query, category, limit) {
-      return vendors.searchByMaterial(query, category, clampLimit(limit, 20, 100));
+    async searchVendors(query, category, limit) {
+      return await vendors.searchByMaterial(query, category, clampLimit(limit, 20, 100));
     },
 
-    getPurchaseHistory({ materialName, vendorId, limit } = {}) {
-      return purchaseRequests.getCompletedHistory({
+    async getPurchaseHistory({ materialName, vendorId, limit } = {}) {
+      return await purchaseRequests.getCompletedHistory({
         materialName: materialName ?? null,
         vendorId: vendorId ?? null,
         limit: clampLimit(limit, 50, 500),
       });
     },
 
-    getVendorKpis(vendorId) {
-      mustExistVendor(vendorId);
-      const kpis = vendors.getKpis(vendorId);
+    async getVendorKpis(vendorId) {
+      await mustExistVendor(vendorId);
+      const kpis = await vendors.getKpis(vendorId);
 
       // Compute winRate and priceCompetitiveness from vendor_responses
-      const myResponses = vendorResponses.listByVendor(vendorId);
+      const myResponses = await vendorResponses.listByVendor(vendorId);
 
       let wins = 0;
       let comparisons = 0;
@@ -464,7 +636,7 @@ export const createProcurementService = ({ repos, events, taskService }) => {
       for (const mine of myResponses) {
         if (mine.unitPrice == null || mine.lineItemId == null) continue;
 
-        const competitors = vendorResponses.listCompetitorsForLineItem(mine.prId, mine.lineItemId);
+        const competitors = await vendorResponses.listCompetitorsForLineItem(mine.prId, mine.lineItemId);
         if (competitors.length === 0) continue;
 
         comparisons++;
@@ -485,7 +657,7 @@ export const createProcurementService = ({ repos, events, taskService }) => {
       };
     },
 
-    importVendors(vendorList) {
+    async importVendors(vendorList) {
       if (!Array.isArray(vendorList) || vendorList.length === 0) {
         throw new ValidationError("vendor list must be a non-empty array");
       }
@@ -493,10 +665,10 @@ export const createProcurementService = ({ repos, events, taskService }) => {
       for (const v of vendorList) {
         if (!v.name) throw new ValidationError("each vendor must have a name");
         if (!v.email) throw new ValidationError("each vendor must have an email");
-        const vendor = vendors.insert(v);
+        const vendor = await vendors.insert(v);
         if (v.materials && Array.isArray(v.materials)) {
           for (const m of v.materials) {
-            vendors.insertMaterial(vendor.id, m);
+            await vendors.insertMaterial(vendor.id, m);
           }
         }
         results.push(vendor);

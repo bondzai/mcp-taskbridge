@@ -87,11 +87,11 @@ export const createTaskService = ({ repo, events, attachmentsRepo }) => {
 
   const emit = (event, data) => events.emit(event, data);
 
-  const mustExist = (id) => {
+  const mustExist = async (id) => {
     if (typeof id !== "string" || id.trim() === "") {
       throw new ValidationError("task id is required");
     }
-    const task = repo.getById(id);
+    const task = await repo.getById(id);
     if (!task) throw new NotFoundError(id);
     return task;
   };
@@ -107,41 +107,41 @@ export const createTaskService = ({ repo, events, attachmentsRepo }) => {
           if (f.size > MAX_ATTACHMENT_SIZE) throw new ValidationError(`file exceeds ${MAX_ATTACHMENT_SIZE / 1024 / 1024} MB limit`);
         }
       }
-      const task = repo.insert(cleaned);
+      const task = await repo.insert(cleaned);
       let attachments = [];
       if (files && files.length > 0) {
-        attachments = attachmentsRepo.insertMany(task.id, files);
+        attachments = await attachmentsRepo.insertMany(task.id, files);
       }
       const result = attachments.length > 0 ? { ...task, attachments } : task;
       await emit(TaskEvents.CREATED, result);
       return result;
     },
 
-    get(id) {
+    async get(id) {
       return mustExist(id);
     },
 
-    listPending(limit) {
+    async listPending(limit) {
       return repo.listPending(clampLimit(limit, 20, 50));
     },
 
-    listAll(limit, opts = {}) {
+    async listAll(limit, opts = {}) {
       return repo.listAll(clampLimit(limit, 100, 500), opts);
     },
 
-    listByAgent(agentId, limit) {
+    async listByAgent(agentId, limit) {
       const cleaned = requireNonEmptyString(agentId, "agent_id", MAX_AGENT_LEN);
       return repo.listByAgent(cleaned, clampLimit(limit, 100, 500));
     },
 
     async claim(id, agentId) {
-      const existing = mustExist(id);
+      const existing = await mustExist(id);
       if (existing.status !== TaskStatus.PENDING) {
         throw new ConflictError(`task ${id} is ${existing.status}, cannot claim`);
       }
       const cleanedAgent =
         agentId == null ? null : requireNonEmptyString(agentId, "agent_id", MAX_AGENT_LEN);
-      const claimed = repo.claim(id, cleanedAgent);
+      const claimed = await repo.claim(id, cleanedAgent);
       if (!claimed) throw new ConflictError(`task ${id} was claimed by another worker`);
       await emit(TaskEvents.CLAIMED, claimed);
       return claimed;
@@ -150,11 +150,11 @@ export const createTaskService = ({ repo, events, attachmentsRepo }) => {
     async complete(id, result, metadata) {
       const cleaned = requireNonEmptyString(result, "result", MAX_RESULT_LEN);
       const cleanedMeta = cleanCompleteMetadata(metadata);
-      const existing = mustExist(id);
+      const existing = await mustExist(id);
       if (existing.status !== TaskStatus.IN_PROGRESS) {
         throw new ConflictError(`task ${id} is ${existing.status}, cannot complete`);
       }
-      const done = repo.complete(id, cleaned, cleanedMeta);
+      const done = await repo.complete(id, cleaned, cleanedMeta);
       if (!done) throw new ConflictError(`task ${id} could not be completed`);
       await emit(TaskEvents.COMPLETED, done);
       return done;
@@ -162,44 +162,44 @@ export const createTaskService = ({ repo, events, attachmentsRepo }) => {
 
     async updatePrompt(id, prompt) {
       const cleaned = requireNonEmptyString(prompt, "prompt", MAX_PROMPT_LEN);
-      const existing = mustExist(id);
+      const existing = await mustExist(id);
       if (existing.archivedAt != null) {
         throw new ConflictError(`task ${id} is archived, cannot update`);
       }
       if (existing.status !== TaskStatus.PENDING) {
         throw new ConflictError(`task ${id} is ${existing.status}, prompt is locked`);
       }
-      const updated = repo.updatePrompt(id, cleaned);
+      const updated = await repo.updatePrompt(id, cleaned);
       if (!updated) throw new ConflictError(`task ${id} could not be updated`);
       await emit(TaskEvents.UPDATED, updated);
       return updated;
     },
 
     async archive(id) {
-      const existing = mustExist(id);
+      const existing = await mustExist(id);
       if (existing.archivedAt != null) {
         return existing; // idempotent
       }
-      const archived = repo.archive(id);
+      const archived = await repo.archive(id);
       if (!archived) throw new ConflictError(`task ${id} could not be archived`);
       await emit(TaskEvents.ARCHIVED, archived);
       return archived;
     },
 
     async unarchive(id) {
-      const existing = mustExist(id);
+      const existing = await mustExist(id);
       if (existing.archivedAt == null) {
         return existing; // idempotent
       }
-      const unarchived = repo.unarchive(id);
+      const unarchived = await repo.unarchive(id);
       if (!unarchived) throw new ConflictError(`task ${id} could not be unarchived`);
       await emit(TaskEvents.UNARCHIVED, unarchived);
       return unarchived;
     },
 
     async delete(id) {
-      const existing = mustExist(id);
-      const ok = repo.delete(id);
+      const existing = await mustExist(id);
+      const ok = await repo.delete(id);
       if (!ok) throw new ConflictError(`task ${id} could not be deleted`);
       // Emit a minimal payload — the row is gone, so tell subscribers just the id.
       await emit(TaskEvents.DELETED, { id: existing.id });
@@ -208,32 +208,32 @@ export const createTaskService = ({ repo, events, attachmentsRepo }) => {
 
     async fail(id, reason) {
       const cleaned = requireNonEmptyString(reason, "reason", MAX_REASON_LEN);
-      const existing = mustExist(id);
+      const existing = await mustExist(id);
       if (existing.status !== TaskStatus.PENDING && existing.status !== TaskStatus.IN_PROGRESS) {
         throw new ConflictError(`task ${id} is ${existing.status}, cannot fail`);
       }
-      const failed = repo.fail(id, cleaned);
+      const failed = await repo.fail(id, cleaned);
       if (!failed) throw new ConflictError(`task ${id} could not be failed`);
       await emit(TaskEvents.FAILED, failed);
       return failed;
     },
 
-    getAttachments(id) {
-      mustExist(id);
+    async getAttachments(id) {
+      await mustExist(id);
       return attachmentsRepo ? attachmentsRepo.listByTaskId(id) : [];
     },
 
-    getAttachmentContent(id, attachmentId) {
-      mustExist(id);
+    async getAttachmentContent(id, attachmentId) {
+      await mustExist(id);
       if (!attachmentsRepo) throw new NotFoundError(`attachment ${attachmentId}`);
-      const att = attachmentsRepo.getById(id, attachmentId);
+      const att = await attachmentsRepo.getById(id, attachmentId);
       if (!att) throw new NotFoundError(`attachment ${attachmentId}`);
       return att;
     },
 
     async progress(id, message, { step, totalSteps } = {}) {
       const cleaned = requireNonEmptyString(message, "message", MAX_PROGRESS_LEN);
-      const existing = mustExist(id);
+      const existing = await mustExist(id);
       if (existing.status !== TaskStatus.IN_PROGRESS) {
         throw new ConflictError(
           `task ${id} is ${existing.status}, progress only valid when in_progress`
@@ -245,14 +245,14 @@ export const createTaskService = ({ repo, events, attachmentsRepo }) => {
       if (totalSteps != null) {
         if (!Number.isInteger(totalSteps) || totalSteps < 1) throw new ValidationError("total_steps must be a positive integer");
       }
-      const result = repo.progress(id, cleaned, { step, totalSteps });
+      const result = await repo.progress(id, cleaned, { step, totalSteps });
       if (!result) throw new ConflictError(`task ${id} progress not recorded`);
       await emit(TaskEvents.PROGRESS, { ...result.task, progressEntry: result.entry });
       return result;
     },
 
-    getProgressLog(id) {
-      mustExist(id);
+    async getProgressLog(id) {
+      await mustExist(id);
       return repo.getProgressLog(id);
     },
   };

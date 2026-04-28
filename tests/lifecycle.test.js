@@ -1,7 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import request from "supertest";
-import { openDatabase } from "../src/core/db.js";
+import { createDatabase } from "../src/db/adapter.js";
+import { SQLITE_SCHEMA, migrateSqlite } from "../src/db/sqlite-schema.js";
 import { createEventBus } from "../src/core/events.js";
 import { createTasksRepository } from "../src/core/repo.js";
 import { createTaskService } from "../src/core/service.js";
@@ -9,8 +10,10 @@ import { createApp } from "../src/transport/http/app.js";
 
 const SECRET = "test-secret";
 
-const buildApp = () => {
-  const db = openDatabase(":memory:");
+const buildApp = async () => {
+  const db = await createDatabase("sqlite", { path: ":memory:" });
+  await db.exec(SQLITE_SCHEMA);
+  await migrateSqlite(db);
   const repo = createTasksRepository(db);
   const events = createEventBus();
   const service = createTaskService({ repo, events });
@@ -21,18 +24,18 @@ const buildApp = () => {
 /* ---------- Update prompt ---------- */
 
 test("PATCH /api/tasks/:id: updates a pending task's prompt", async () => {
-  const { app, service } = buildApp();
+  const { app, service } = await buildApp();
   const t = await service.create("first version");
   const res = await request(app).patch(`/api/tasks/${t.id}`).send({ prompt: "second version" });
   assert.equal(res.status, 200);
   assert.equal(res.body.prompt, "second version");
   assert.equal(res.body.status, "pending");
   // Service.get should reflect the change
-  assert.equal(service.get(t.id).prompt, "second version");
+  assert.equal((await service.get(t.id)).prompt, "second version");
 });
 
 test("PATCH /api/tasks/:id: 409 when task is in_progress (prompt locked)", async () => {
-  const { app, service } = buildApp();
+  const { app, service } = await buildApp();
   const t = await service.create("locked when claimed");
   await service.claim(t.id, "tester");
   const res = await request(app).patch(`/api/tasks/${t.id}`).send({ prompt: "nope" });
@@ -41,7 +44,7 @@ test("PATCH /api/tasks/:id: 409 when task is in_progress (prompt locked)", async
 });
 
 test("PATCH /api/tasks/:id: 400 on empty / oversize prompt", async () => {
-  const { app, service } = buildApp();
+  const { app, service } = await buildApp();
   const t = await service.create("ok");
   const r1 = await request(app).patch(`/api/tasks/${t.id}`).send({ prompt: "   " });
   assert.equal(r1.status, 400);
@@ -50,7 +53,7 @@ test("PATCH /api/tasks/:id: 400 on empty / oversize prompt", async () => {
 });
 
 test("PATCH /api/tasks/:id: 404 on unknown id", async () => {
-  const { app } = buildApp();
+  const { app } = await buildApp();
   const res = await request(app).patch("/api/tasks/nope").send({ prompt: "anything" });
   assert.equal(res.status, 404);
 });
@@ -58,7 +61,7 @@ test("PATCH /api/tasks/:id: 404 on unknown id", async () => {
 /* ---------- Archive / unarchive ---------- */
 
 test("POST /api/tasks/:id/archive: hides from default list, idempotent", async () => {
-  const { app, service } = buildApp();
+  const { app, service } = await buildApp();
   const t = await service.create("hide me");
 
   const arch = await request(app).post(`/api/tasks/${t.id}/archive`);
@@ -80,7 +83,7 @@ test("POST /api/tasks/:id/archive: hides from default list, idempotent", async (
 });
 
 test("POST /api/tasks/:id/unarchive: restores the task", async () => {
-  const { app, service } = buildApp();
+  const { app, service } = await buildApp();
   const t = await service.create("restore me");
   await request(app).post(`/api/tasks/${t.id}/archive`);
 
@@ -93,12 +96,12 @@ test("POST /api/tasks/:id/unarchive: restores the task", async () => {
 });
 
 test("listPending excludes archived tasks", async () => {
-  const { service } = buildApp();
+  const { service } = await buildApp();
   const a = await service.create("active 1");
   const b = await service.create("active 2");
   const c = await service.create("about to be archived");
   await service.archive(c.id);
-  const pending = service.listPending();
+  const pending = await service.listPending();
   const ids = pending.map((t) => t.id).sort();
   assert.deepEqual(ids.sort(), [a.id, b.id].sort());
 });
@@ -106,7 +109,7 @@ test("listPending excludes archived tasks", async () => {
 /* ---------- Delete ---------- */
 
 test("DELETE /api/tasks/:id: removes the task and emits task.deleted", async () => {
-  const { app, service, events } = buildApp();
+  const { app, service, events } = await buildApp();
   const t = await service.create("remove me");
 
   const seen = [];
@@ -123,7 +126,7 @@ test("DELETE /api/tasks/:id: removes the task and emits task.deleted", async () 
 });
 
 test("DELETE /api/tasks/:id: 404 on unknown id", async () => {
-  const { app } = buildApp();
+  const { app } = await buildApp();
   const res = await request(app).delete("/api/tasks/nope");
   assert.equal(res.status, 404);
 });
@@ -131,7 +134,7 @@ test("DELETE /api/tasks/:id: 404 on unknown id", async () => {
 /* ---------- Complete with metadata ---------- */
 
 test("submit_result metadata: model + tokens persisted; total auto-computed", async () => {
-  const { service } = buildApp();
+  const { service } = await buildApp();
   const t = await service.create("token test");
   await service.claim(t.id);
   const done = await service.complete(t.id, "answer text", {
@@ -146,7 +149,7 @@ test("submit_result metadata: model + tokens persisted; total auto-computed", as
 });
 
 test("submit_result metadata: explicit total_tokens overrides the sum", async () => {
-  const { service } = buildApp();
+  const { service } = await buildApp();
   const t = await service.create("explicit total");
   await service.claim(t.id);
   const done = await service.complete(t.id, "answer", {
@@ -159,7 +162,7 @@ test("submit_result metadata: explicit total_tokens overrides the sum", async ()
 });
 
 test("submit_result metadata: rejects bad token shapes", async () => {
-  const { service } = buildApp();
+  const { service } = await buildApp();
   const t = await service.create("bad tokens");
   await service.claim(t.id);
   await assert.rejects(
@@ -169,7 +172,7 @@ test("submit_result metadata: rejects bad token shapes", async () => {
 });
 
 test("submit_result metadata: omitted entirely → fields stay null", async () => {
-  const { service } = buildApp();
+  const { service } = await buildApp();
   const t = await service.create("no meta");
   await service.claim(t.id);
   const done = await service.complete(t.id, "answer");

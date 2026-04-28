@@ -60,19 +60,18 @@ export const createHealthTracker = ({ events, startedAt = Date.now() } = {}) => 
       state.webhook.rejected += 1;
       state.webhook.lastRejectedAt = Date.now();
     },
-    snapshot({ repo, sseSize = null, version = null } = {}) {
+    async snapshot({ repo, sseSize = null, version = null } = {}) {
       const now = Date.now();
-      let db = { ok: false, journalMode: null, tasks: null, error: null };
+      let db = { ok: false, tasks: null, error: null };
       if (repo) {
         try {
           db = {
             ok: true,
-            journalMode: repo.journalMode?.() ?? null,
-            tasks: repo.countByStatus?.() ?? null,
+            tasks: repo.countByStatus ? await repo.countByStatus() : null,
             error: null,
           };
         } catch (err) {
-          db = { ok: false, journalMode: null, tasks: null, error: err.message };
+          db = { ok: false, tasks: null, error: err.message };
         }
       }
 

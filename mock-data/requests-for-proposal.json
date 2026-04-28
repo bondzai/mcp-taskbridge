@@ -1,0 +1,60 @@
+[
+  {
+    "rfpNumber": "RFP-2024-0012",
+    "projectName": "e-Procurement System",
+    "budgetFrame": {
+      "amount": 2500000,
+      "currency": "THB",
+      "includes": "Implementation + License 3 years"
+    },
+    "submissionDeadline": "2024-03-15T17:00:00",
+    "resultAnnouncementDate": "2024-04-05",
+    "scopeOfWork": [
+      "Vendor Management: onboarding, KYC, blacklist check, performance scoring",
+      "RFx Management: create RFI/RFQ/RFP, auto-send, receive responses, evaluate",
+      "Contract Management: templates, digital signature, renewal alerts",
+      "PO Management: create PO, approval workflow, GRN matching",
+      "Dashboard & Reporting: KPI vendor, spend analysis, savings report",
+      "Integration: SAP ERP, Active Directory (SSO), email gateway"
+    ],
+    "evaluationCriteria": [
+      {
+        "criteria": "Price / TCO (3 years)",
+        "weight": 25,
+        "scoringDetail": "Lowest price = 25 points, others proportional"
+      },
+      {
+        "criteria": "Functionality & Features",
+        "weight": 25,
+        "scoringDetail": "Scope coverage >= 90% = full marks, live demo"
+      },
+      {
+        "criteria": "Implementation Plan",
+        "weight": 20,
+        "scoringDetail": "Timeline, methodology, resources, risk plan"
+      },
+      {
+        "criteria": "Support & SLA",
+        "weight": 15,
+        "scoringDetail": "Response time, uptime SLA, training plan"
+      },
+      {
+        "criteria": "Vendor Financial Stability",
+        "weight": 10,
+        "scoringDetail": "Revenue history (3 years), headcount, references"
+      },
+      {
+        "criteria": "Security & Compliance",
+        "weight": 5,
+        "scoringDetail": "ISO 27001, PDPA compliance, penetration test"
+      }
+    ],
+    "requiredDocuments": {
+      "envelope1_qualifications": "Company certificates, past project references (min. 3), team CVs",
+      "envelope2_technical": "Technical proposal, architecture diagram, demo environment URL",
+      "envelope3_commercial": "Commercial proposal: license, implementation, support/year breakdown"
+    },
+    "approvalChain": ["Procurement Manager", "CTO / Project Owner", "CFO"],
+    "status": "open"
+  }
+]

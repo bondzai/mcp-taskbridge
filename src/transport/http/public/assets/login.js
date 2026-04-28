@@ -28,7 +28,6 @@ const showError = (msg) => {
 };
 
 const hideError = () => {
-  errorEl.textContent = "";
   errorEl.classList.remove("visible");
 };
 

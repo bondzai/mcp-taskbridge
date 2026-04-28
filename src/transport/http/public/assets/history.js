@@ -1,134 +1,128 @@
 /* ============================================================
-   Purchase History page — search completed PRs, filter by vendor.
+   Purchase History — completed PRs grouped as cards.
    ============================================================ */
 
-import { renderChrome, loadSettings, applyTheme, toast, absoluteTime } from "./chrome.js";
+import { renderChrome, loadSettings, applyTheme, toast, relativeTime, absoluteTime } from "./chrome.js";
 import { html, toString } from "./html.js";
-
-/* ---------- API ---------- */
+import { createListControls } from "./list-controls.js";
 
 const api = async (url) => {
   const res = await fetch(url, { headers: { "Content-Type": "application/json" } });
   const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw Object.assign(new Error(body.error || `HTTP ${res.status}`), { status: res.status, body });
+  if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
   return body;
 };
 
-/* ---------- State ---------- */
+const state = { history: [], vendors: [], loading: true };
+let controls = null;
 
-const state = {
-  history: [],
-  vendors: [],
-  loading: true,
-  material: "",
-  vendorId: "",
+const fmtPrice = (v, currency) => {
+  if (v == null) return "—";
+  const sym = { USD: "$", EUR: "€", GBP: "£", THB: "฿" }[currency] || currency || "$";
+  return `${sym}${v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 };
 
-/* ---------- Load ---------- */
+const fmtTotal = (items) => {
+  const total = items.reduce((s, i) => s + ((i.unitPrice || 0) * (i.quantity || 0)), 0);
+  if (total === 0) return null;
+  const currency = items.find((i) => i.currency)?.currency || "USD";
+  return fmtPrice(total, currency);
+};
 
-const loadHistory = async () => {
-  try {
-    state.loading = true;
-    render();
-    const params = new URLSearchParams();
-    if (state.material.trim()) params.set("material", state.material.trim());
-    if (state.vendorId) params.set("vendor_id", state.vendorId);
-    const body = await api(`/api/procurement/history?${params}`);
-    state.history = body.history || [];
-    state.loading = false;
-    render();
-  } catch (err) {
-    state.loading = false;
-    render();
-    toast("Failed to load history");
-    console.error("[history]", err);
+/* ---------- Filtering ---------- */
+
+const filtered = () => {
+  const cs = controls?.getState() || {};
+  const q = (cs.search || "").trim().toLowerCase();
+  const vendorFilter = cs.filters?.vendor || "";
+
+  let list = [...state.history];
+
+  if (vendorFilter) {
+    list = list.map((pr) => ({
+      ...pr,
+      items: pr.items.filter((i) => i.vendorId === vendorFilter),
+    })).filter((pr) => pr.items.length > 0);
   }
-};
 
-const loadVendors = async () => {
-  try {
-    const body = await api("/api/procurement/vendors?active=true&limit=500");
-    state.vendors = body.vendors || [];
-    populateVendorFilter();
-  } catch (err) {
-    console.error("[history] failed to load vendors", err);
+  if (q) {
+    list = list.filter((pr) =>
+      (pr.prTitle || "").toLowerCase().includes(q) ||
+      pr.items.some((i) => (i.materialName || "").toLowerCase().includes(q) ||
+                           (i.vendorName || "").toLowerCase().includes(q))
+    );
   }
-};
 
-const populateVendorFilter = () => {
-  const select = document.getElementById("history-vendor");
-  if (!select) return;
-  const current = select.value;
-  select.innerHTML = '<option value="">All vendors</option>';
-  for (const v of state.vendors) {
-    const opt = document.createElement("option");
-    opt.value = v.id;
-    opt.textContent = v.name || v.id;
-    select.appendChild(opt);
-  }
-  select.value = current;
-};
-
-/* ---------- Render helpers ---------- */
-
-const skeleton = () => html`
-  <div class="tb-skeleton-list" aria-hidden="true">
-    ${[0, 1, 2].map(() => html`
-      <div class="tb-skeleton-card">
-        <div class="tb-skeleton-line tb-skeleton-line-sm"></div>
-        <div class="tb-skeleton-line tb-skeleton-line-lg"></div>
-        <div class="tb-skeleton-line tb-skeleton-line-md"></div>
-      </div>
-    `)}
-  </div>
-`;
-
-const emptyState = () => html`
-  <div class="tb-empty" role="status">
-    <i class="bi bi-clock-history" aria-hidden="true"></i>
-    <div>No completed purchases found.</div>
-    <div class="small mt-1">Completed purchase requests will appear here.</div>
-  </div>
-`;
-
-const fmtPrice = (v) => v != null ? v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "--";
-
-const historyTable = (history) => {
-  const rows = [];
-  for (const pr of history) {
-    for (const item of pr.items) {
-      rows.push({ ...item, prId: pr.prId, prTitle: pr.prTitle, completedAt: pr.completedAt });
+  const sort = cs.sort || "newest";
+  list.sort((a, b) => {
+    switch (sort) {
+      case "newest":  return (b.completedAt || 0) - (a.completedAt || 0);
+      case "oldest":  return (a.completedAt || 0) - (b.completedAt || 0);
+      case "value": {
+        const ta = a.items.reduce((s, i) => s + ((i.unitPrice || 0) * (i.quantity || 0)), 0);
+        const tb = b.items.reduce((s, i) => s + ((i.unitPrice || 0) * (i.quantity || 0)), 0);
+        return tb - ta;
+      }
+      case "items": return (b.items?.length || 0) - (a.items?.length || 0);
+      default: return 0;
     }
-  }
+  });
+
+  return list;
+};
+
+const paged = () => {
+  const cs = controls?.getState() || { page: 1, pageSize: 10 };
+  const list = filtered();
+  const pageSize = cs.pageSize || 10;
+  const pageCount = Math.max(1, Math.ceil(list.length / pageSize));
+  let page = Math.min(cs.page || 1, pageCount);
+  const start = (page - 1) * pageSize;
+  return { slice: list.slice(start, start + pageSize), total: list.length };
+};
+
+/* ---------- Render ---------- */
+
+const historyCard = (pr) => {
+  const total = fmtTotal(pr.items);
+  const vendors = [...new Set(pr.items.map((i) => i.vendorName).filter(Boolean))];
 
   return html`
-    <div class="table-responsive">
-      <table class="table table-sm table-hover align-middle mb-0">
+    <div class="tb-history-card">
+      <div class="tb-history-card-header">
+        <div>
+          <div class="tb-history-card-title">${pr.prTitle}</div>
+          <div class="tb-history-card-meta">
+            <span title="${absoluteTime(pr.completedAt)}">
+              <i class="bi bi-check-circle me-1 text-success"></i>${relativeTime(pr.completedAt)}
+            </span>
+            <span><i class="bi bi-box me-1"></i>${pr.items.length} item${pr.items.length !== 1 ? "s" : ""}</span>
+            ${vendors.length > 0 ? html`<span><i class="bi bi-building me-1"></i>${vendors.join(", ")}</span>` : ""}
+            ${total ? html`<span class="fw-semibold"><i class="bi bi-currency-dollar me-1"></i>${total}</span>` : ""}
+          </div>
+        </div>
+        <span class="tb-mono small text-body-secondary">#${(pr.prId || "").slice(0, 8)}</span>
+      </div>
+      <table class="tb-history-table">
         <thead>
           <tr>
-            <th>PR ID</th>
-            <th>Title</th>
             <th>Material</th>
             <th class="text-end">Qty</th>
             <th>Vendor</th>
             <th class="text-end">Unit Price</th>
-            <th>Currency</th>
-            <th class="text-end">Lead Time</th>
-            <th>Completed</th>
+            <th class="text-end">Total</th>
+            <th class="text-end">Lead</th>
           </tr>
         </thead>
         <tbody>
-          ${rows.map((r) => html`
+          ${pr.items.map((i) => html`
             <tr>
-              <td class="tb-mono small">${r.prId.slice(0, 8)}</td>
-              <td>${r.prTitle}</td>
-              <td>${r.materialName}</td>
-              <td class="text-end tb-mono">${r.quantity} ${r.unit}</td>
-              <td>${r.vendorName || "--"}</td>
-              <td class="text-end tb-mono">${fmtPrice(r.unitPrice)}</td>
-              <td>${r.currency || "--"}</td>
-              <td class="text-end">${r.leadTimeDays != null ? r.leadTimeDays + "d" : "--"}</td>
-              <td class="small text-body-secondary">${absoluteTime(r.completedAt)}</td>
+              <td>${i.materialName}</td>
+              <td class="text-end tb-mono">${i.quantity} ${i.unit || ""}</td>
+              <td>${i.vendorName || "—"}</td>
+              <td class="text-end tb-mono">${fmtPrice(i.unitPrice, i.currency)}</td>
+              <td class="text-end tb-mono">${i.unitPrice && i.quantity ? fmtPrice(i.unitPrice * i.quantity, i.currency) : "—"}</td>
+              <td class="text-end">${i.leadTimeDays != null ? `${i.leadTimeDays}d` : "—"}</td>
             </tr>
           `)}
         </tbody>
@@ -137,65 +131,97 @@ const historyTable = (history) => {
   `;
 };
 
-/* ---------- Render ---------- */
-
 const render = () => {
-  const listEl = document.getElementById("history-list");
-  if (!listEl) return;
+  const el = document.getElementById("history-list");
+  if (!el) return;
 
-  listEl.setAttribute("aria-busy", state.loading ? "true" : "false");
+  el.setAttribute("aria-busy", state.loading ? "true" : "false");
 
   if (state.loading && state.history.length === 0) {
-    listEl.innerHTML = toString(skeleton());
+    el.innerHTML = toString(html`
+      <div class="tb-skeleton-list" aria-hidden="true">
+        ${[0, 1, 2].map(() => html`
+          <div class="tb-skeleton-card">
+            <div class="tb-skeleton-line tb-skeleton-line-sm"></div>
+            <div class="tb-skeleton-line tb-skeleton-line-lg"></div>
+            <div class="tb-skeleton-line tb-skeleton-line-md"></div>
+          </div>
+        `)}
+      </div>
+    `);
     return;
   }
 
-  if (state.history.length === 0) {
-    listEl.innerHTML = toString(emptyState());
+  const view = paged();
+  if (controls) controls.setState({ totalItems: view.total });
+
+  if (view.total === 0) {
+    el.innerHTML = toString(html`
+      <div class="tb-empty" role="status">
+        <i class="bi bi-clock-history" aria-hidden="true"></i>
+        <div>No completed purchases found.</div>
+        <div class="small mt-1">Completed purchase requests will appear here.</div>
+      </div>
+    `);
     return;
   }
 
-  listEl.innerHTML = toString(historyTable(state.history));
-};
-
-/* ---------- Event wiring ---------- */
-
-let searchTimer = null;
-
-const bindEvents = () => {
-  const materialEl = document.getElementById("history-material");
-  if (materialEl) {
-    materialEl.addEventListener("input", (e) => {
-      state.material = e.target.value;
-      clearTimeout(searchTimer);
-      searchTimer = setTimeout(() => loadHistory(), 300);
-    });
-  }
-
-  const vendorEl = document.getElementById("history-vendor");
-  if (vendorEl) {
-    vendorEl.addEventListener("change", (e) => {
-      state.vendorId = e.target.value;
-      loadHistory();
-    });
-  }
-
-  const refreshBtn = document.getElementById("history-refresh");
-  if (refreshBtn) {
-    refreshBtn.addEventListener("click", () => loadHistory());
-  }
+  el.innerHTML = toString(html`<div class="tb-list">${view.slice.map(historyCard)}</div>`);
 };
 
 /* ---------- Boot ---------- */
 
-const boot = () => {
-  const settings = loadSettings();
-  applyTheme(settings.theme);
+const boot = async () => {
+  applyTheme(loadSettings().theme);
   renderChrome();
-  bindEvents();
+
+  controls = createListControls({
+    storageKey: "history",
+    toolbarContainer: document.getElementById("history-toolbar"),
+    paginationContainer: document.getElementById("history-pagination"),
+    onUpdate: () => render(),
+  });
+
   render();
-  loadVendors();
-  loadHistory();
+
+  try {
+    const [histBody, vendorBody] = await Promise.all([
+      api("/api/procurement/history"),
+      api("/api/procurement/vendors?limit=500"),
+    ]);
+    state.history = histBody.history || [];
+    state.vendors = vendorBody.vendors || [];
+    state.loading = false;
+
+    controls.render({
+      views: ["list"],
+      sorts: [
+        { value: "newest", label: "Newest" },
+        { value: "oldest", label: "Oldest" },
+        { value: "value", label: "Highest value" },
+        { value: "items", label: "Most items" },
+      ],
+      defaultSort: "newest",
+      filters: [{
+        id: "vendor",
+        label: "Vendor",
+        options: [
+          { value: "", label: "All vendors" },
+          ...state.vendors.map((v) => ({ value: v.id, label: v.name })),
+        ],
+      }],
+      pageSize: 10,
+      pageSizes: [10, 25, 50],
+      totalItems: state.history.length,
+      searchPlaceholder: "Search material, vendor, PR title...",
+    });
+
+    render();
+  } catch (err) {
+    state.loading = false;
+    render();
+    toast("Failed to load history");
+  }
 };
 
 boot();

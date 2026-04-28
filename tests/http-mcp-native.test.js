@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { openDatabase } from "../src/core/db.js";
+import { createDatabase } from "../src/db/adapter.js";
+import { SQLITE_SCHEMA, migrateSqlite } from "../src/db/sqlite-schema.js";
 import { createEventBus } from "../src/core/events.js";
 import { createTasksRepository } from "../src/core/repo.js";
 import { createTaskService } from "../src/core/service.js";
@@ -28,7 +29,9 @@ const shutdown = (server) =>
   });
 
 const buildLiveApp = async ({ fallback = "codex" } = {}) => {
-  const db = openDatabase(":memory:");
+  const db = await createDatabase("sqlite", { path: ":memory:" });
+  await db.exec(SQLITE_SCHEMA);
+  await migrateSqlite(db);
   const repo = createTasksRepository(db);
   const events = createEventBus();
   const service = createTaskService({ repo, events });
@@ -93,7 +96,7 @@ test("native /mcp: initialize returns taskbridge serverInfo", async () => {
     assert.ok(body.result.capabilities.tools);
   } finally {
     await shutdown(server);
-    db.close();
+    await db.close();
   }
 });
 
@@ -119,7 +122,7 @@ test("native /mcp: tools/list returns all seven tools", async () => {
     ]);
   } finally {
     await shutdown(server);
-    db.close();
+    await db.close();
   }
 });
 
@@ -162,7 +165,7 @@ test("native /mcp: list → claim → submit round-trip", async () => {
     assert.equal(submittedBody.task.result, "4");
   } finally {
     await shutdown(server);
-    db.close();
+    await db.close();
   }
 });
 
@@ -181,7 +184,7 @@ test("native /mcp: claim_task on unknown id surfaces NOT_FOUND", async () => {
     assert.equal(errBody.code, "NOT_FOUND");
   } finally {
     await shutdown(server);
-    db.close();
+    await db.close();
   }
 });
 
@@ -217,7 +220,7 @@ test("native /mcp: claim_task emits task.claimed on the SSE fanout", async () =>
     assert.ok(seenClaimed, "expected task.claimed SSE frame after native /mcp claim_task");
   } finally {
     await shutdown(server);
-    db.close();
+    await db.close();
   }
 });
 
@@ -240,7 +243,7 @@ test("native /mcp: clientInfo.name=codex-mcp-client tags task as 'codex' (not th
     assert.equal(body.task.agentId, "codex");
   } finally {
     await shutdown(server);
-    db.close();
+    await db.close();
   }
 });
 
@@ -261,7 +264,7 @@ test("native /mcp: unknown clientInfo.name falls back to the configured default"
     assert.equal(body.task.agentId, "generic");
   } finally {
     await shutdown(server);
-    db.close();
+    await db.close();
   }
 });
 
@@ -285,7 +288,7 @@ test("native /mcp: explicit agent_id argument on claim_task beats detection", as
     assert.equal(body.task.agentId, "my-custom-worker-42");
   } finally {
     await shutdown(server);
-    db.close();
+    await db.close();
   }
 });
 
@@ -330,7 +333,7 @@ test("/mcp/:agentId: tags the task with the URL path adapter id", async () => {
     assert.equal(body.task.agentId, "codex");
   } finally {
     await shutdown(server);
-    db.close();
+    await db.close();
   }
 });
 
@@ -348,7 +351,7 @@ test("/mcp/:agentId: works with a brand-new custom agent name (no regex match ne
     assert.equal(body.task.agentId, "my-cool-bot-7");
   } finally {
     await shutdown(server);
-    db.close();
+    await db.close();
   }
 });
 
@@ -374,7 +377,7 @@ test("/mcp/:agentId: rejects a path segment with bad characters with 400", async
     assert.ok(res.status === 404 || res.status === 400);
   } finally {
     await shutdown(server);
-    db.close();
+    await db.close();
   }
 });
 
@@ -399,7 +402,7 @@ test("/mcp/:agentId: empty / too-long agent id rejected with 400", async () => {
     assert.equal(res.status, 400);
   } finally {
     await shutdown(server);
-    db.close();
+    await db.close();
   }
 });
 
@@ -420,6 +423,6 @@ test("/mcp/:agentId: explicit agent_id arg on claim_task still wins over the URL
     assert.equal(body.task.agentId, "claimed-by-arg");
   } finally {
     await shutdown(server);
-    db.close();
+    await db.close();
   }
 });

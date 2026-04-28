@@ -31,24 +31,13 @@
         </header>
 
         <!-- Toolbar -->
-        <section class="tb-toolbar" id="vendor-toolbar" aria-label="Vendor filters">
-          <div class="tb-search">
-            <i class="bi bi-search" aria-hidden="true"></i>
-            <label for="vendor-q" class="visually-hidden">Search vendors</label>
-            <input id="vendor-q" type="search" class="form-control"
-                   placeholder="Search by name, email, category..." />
-          </div>
-          <div class="form-check form-switch m-0 ms-1" title="Show inactive vendors">
-            <input class="form-check-input" type="checkbox" id="vendor-show-inactive" />
-            <label class="form-check-label small text-body-secondary" for="vendor-show-inactive">Inactive</label>
-          </div>
-          <button id="vendor-refresh" class="tb-icon-btn" title="Reload from server" aria-label="Reload vendors">
-            <i class="bi bi-arrow-clockwise" aria-hidden="true"></i>
-          </button>
-        </section>
+        <section id="vendor-toolbar" aria-label="Vendor filters"></section>
 
         <!-- Vendor list -->
         <section id="vendor-list" aria-label="Vendors" aria-busy="true"></section>
+
+        <!-- Pagination -->
+        <nav id="vendor-pagination" class="tb-pagination" aria-label="Vendor list pagination"></nav>
       </div>
     </main>
 

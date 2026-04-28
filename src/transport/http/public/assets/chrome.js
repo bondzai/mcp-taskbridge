@@ -115,12 +115,10 @@ export const renderMarkdown = (text) => {
 /* ---------- Navbar ---------- */
 
 const NAV_LINKS = [
-  { href: "/", label: "Dashboard", icon: "bi-speedometer2", match: ["/", "/index.html", "/procurement-detail.html"] },
-  { href: "/procurement-new.html", label: "New PR", icon: "bi-plus-circle", match: ["/procurement-new.html"] },
+  { href: "/", label: "Purchase Requests", icon: "bi-cart3", match: ["/", "/index.html", "/procurement-detail.html", "/procurement-new.html"] },
   { href: "/vendors.html", label: "Vendors", icon: "bi-building", match: ["/vendors.html"] },
-  { href: "/history.html", label: "History", icon: "bi-clock-history", match: ["/history.html"] },
+  { href: "/history.html", label: "Purchase History", icon: "bi-clock-history", match: ["/history.html"] },
   { href: "/status.html", label: "System", icon: "bi-activity", match: ["/status.html"] },
-  { href: "/settings.html", label: "Settings", icon: "bi-gear", match: ["/settings.html"] },
 ];
 
 const isActive = (link) => link.match.includes(location.pathname);
@@ -159,20 +157,11 @@ export const renderChrome = ({ pendingCount = 0 } = {}) => {
           </ul>
 
           <div class="tb-nav-actions ms-md-auto mt-2 mt-md-0">
-            <span id="tb-pending-badge" class="tb-agent-badge" title="Pending tasks">
+            <span id="tb-pending-badge" class="tb-agent-badge" data-count="${pendingCount}" title="Pending tasks">
               <i class="bi bi-hourglass-split"></i>
               <span id="tb-pending-count">${pendingCount}</span>
               <span class="tb-label">pending</span>
             </span>
-
-            <span class="tb-user-badge" id="tb-user-badge" style="display:none">
-              <i class="bi bi-person-circle"></i>
-              <span id="tb-user-name"></span>
-              <span class="badge bg-secondary" id="tb-user-role"></span>
-            </span>
-            <button class="tb-icon-btn" id="tb-logout" title="Sign out" aria-label="Sign out" style="display:none">
-              <i class="bi bi-box-arrow-right"></i>
-            </button>
 
             <button type="button" class="tb-icon-btn" id="tb-prompts-btn" title="Prompt library" aria-label="Prompt library">
               <i class="bi bi-magic"></i>
@@ -195,13 +184,26 @@ export const renderChrome = ({ pendingCount = 0 } = {}) => {
               </ul>
             </div>
 
-            <a class="tb-icon-btn" href="/settings.html" title="Settings" aria-label="Settings">
-              <i class="bi bi-gear"></i>
-            </a>
-
-            <a class="tb-icon-btn" href="https://modelcontextprotocol.io" target="_blank" rel="noreferrer" title="MCP docs" aria-label="MCP docs">
-              <i class="bi bi-box-arrow-up-right"></i>
-            </a>
+            <div class="dropdown" id="tb-avatar-dropdown">
+              <button class="tb-avatar-btn" data-bs-toggle="dropdown" aria-label="Account menu" title="Account">
+                <span class="tb-avatar-circle" id="tb-avatar-initial">?</span>
+              </button>
+              <ul class="dropdown-menu dropdown-menu-end">
+                <li class="dropdown-item-text">
+                  <div class="d-flex align-items-center gap-2">
+                    <span class="tb-avatar-circle tb-avatar-circle-sm" id="tb-menu-initial">?</span>
+                    <div>
+                      <div class="fw-semibold" id="tb-menu-name">—</div>
+                      <div class="small text-body-secondary" id="tb-menu-role">—</div>
+                    </div>
+                  </div>
+                </li>
+                <li><hr class="dropdown-divider"></li>
+                <li><a class="dropdown-item" href="/settings.html"><i class="bi bi-gear me-2"></i>Settings</a></li>
+                <li><hr class="dropdown-divider"></li>
+                <li><button class="dropdown-item" id="tb-logout"><i class="bi bi-box-arrow-right me-2"></i>Sign out</button></li>
+              </ul>
+            </div>
           </div>
         </div>
       </div>
@@ -250,29 +252,29 @@ export const renderChrome = ({ pendingCount = 0 } = {}) => {
     });
   }
 
-  // Auth: fetch current user and show badge + logout
-  const userBadge = slot.querySelector("#tb-user-badge");
-  const userName = slot.querySelector("#tb-user-name");
-  const userRole = slot.querySelector("#tb-user-role");
+  // Auth: populate avatar dropdown
+  const avatarInitial = slot.querySelector("#tb-avatar-initial");
+  const menuInitial = slot.querySelector("#tb-menu-initial");
+  const menuName = slot.querySelector("#tb-menu-name");
+  const menuRole = slot.querySelector("#tb-menu-role");
   const logoutBtn = slot.querySelector("#tb-logout");
 
   fetch("/api/auth/me")
     .then((r) => (r.ok ? r.json() : null))
     .then((data) => {
       if (data?.ok && data.user) {
-        userName.textContent = data.user.username;
-        userRole.textContent = data.user.role;
-        userBadge.style.display = "";
-        logoutBtn.style.display = "";
+        const initial = (data.user.username || "?")[0].toUpperCase();
+        if (avatarInitial) avatarInitial.textContent = initial;
+        if (menuInitial) menuInitial.textContent = initial;
+        if (menuName) menuName.textContent = data.user.username;
+        if (menuRole) menuRole.textContent = data.user.role;
       }
     })
-    .catch(() => { /* not logged in or auth not enabled */ });
+    .catch(() => {});
 
   if (logoutBtn) {
     logoutBtn.addEventListener("click", async () => {
-      try {
-        await fetch("/api/auth/logout", { method: "POST" });
-      } catch { /* ignore */ }
+      try { await fetch("/api/auth/logout", { method: "POST" }); } catch {}
       window.location.href = "/login.html";
     });
   }
@@ -288,6 +290,8 @@ const themeIcon = (t) => ({
 export const setPendingCount = (n) => {
   const el = document.getElementById("tb-pending-count");
   if (el) el.textContent = String(n);
+  const badge = document.getElementById("tb-pending-badge");
+  if (badge) badge.setAttribute("data-count", String(n));
 };
 
 /* ---------- Toast ---------- */

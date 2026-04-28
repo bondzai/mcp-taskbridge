@@ -1,0 +1,71 @@
+[
+  {
+    "invoiceNumber": "INV-TP-2024-8821",
+    "vendorId": "VND-001",
+    "issuedTo": {
+      "companyName": "ABC Co., Ltd.",
+      "address": "123 Sukhumvit Road, Khlong Toei, Bangkok 10110",
+      "taxId": "0-1055-64001-23-4"
+    },
+    "invoiceDate": "2024-04-01",
+    "poReference": "PO-2024-1102",
+    "grnReference": "GRN-2024-0521",
+    "paymentDueDate": "2024-04-30",
+    "paymentTerms": "Net 30 days",
+    "lineItems": [
+      {
+        "itemNumber": 1,
+        "itemName": "Laptop Intel Core i7 / 16GB RAM / 512GB SSD",
+        "quantity": 5,
+        "unit": "unit",
+        "unitPrice": 72000,
+        "total": 360000
+      },
+      {
+        "itemNumber": 2,
+        "itemName": "Monitor 27\" 4K IPS USB-C Hub",
+        "quantity": 5,
+        "unit": "unit",
+        "unitPrice": 14500,
+        "total": 72500
+      },
+      {
+        "itemNumber": 3,
+        "itemName": "Wireless Headset BT5 ANC",
+        "quantity": 10,
+        "unit": "set",
+        "unitPrice": 4800,
+        "total": 48000
+      },
+      {
+        "itemNumber": 4,
+        "itemName": "Docking Station USB-C 100W",
+        "quantity": 4,
+        "unit": "unit",
+        "unitPrice": 4200,
+        "total": 16800
+      }
+    ],
+    "notes": "Docking Station invoiced for 4 of 5 units (received 4). Unit 5 will be invoiced separately after replacement delivery.",
+    "subtotal": 497300,
+    "vatRate": 7,
+    "vatAmount": 34811,
+    "grandTotal": 532111,
+    "currency": "THB",
+    "paymentInfo": {
+      "bank": "Kasikorn Bank",
+      "branch": "Lat Phrao",
+      "accountNumber": "123-4-56789-0",
+      "accountName": "TechPlus Co., Ltd.",
+      "remittanceEmail": "ar@techplus.co.th"
+    },
+    "threeWayMatchStatus": {
+      "po": "match",
+      "grn": "match",
+      "invoice": "match",
+      "readyForPayment": true
+    },
+    "apProcessing": "Finance to process payment by 2024-04-30",
+    "status": "pending_payment"
+  }
+]

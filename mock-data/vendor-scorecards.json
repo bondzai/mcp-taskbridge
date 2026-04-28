@@ -1,0 +1,94 @@
+[
+  {
+    "scorecardId": "SC-2024-0078",
+    "relatedRfq": "RFQ-2024-0078",
+    "project": "IT Equipment — Laptop, Monitor, Headset, Docking Station x 4 items",
+    "evaluationDate": "2024-03-05",
+    "committee": ["Procurement", "IT Manager", "Finance"],
+    "scoringScale": {
+      "min": 1.0,
+      "max": 5.0
+    },
+    "criteria": [
+      { "name": "Price / TCO", "weight": 25 },
+      { "name": "Quality & Spec", "weight": 20 },
+      { "name": "Delivery & Lead Time", "weight": 20 },
+      { "name": "Financial Stability", "weight": 15 },
+      { "name": "After-Sales Service", "weight": 10 },
+      { "name": "Compliance & Risk", "weight": 10 }
+    ],
+    "vendorScores": [
+      {
+        "vendorId": "VND-001",
+        "vendorName": "TechPlus",
+        "scores": {
+          "Price / TCO": 4.8,
+          "Quality & Spec": 4.5,
+          "Delivery & Lead Time": 4.2,
+          "Financial Stability": 4.5,
+          "After-Sales Service": 4.8,
+          "Compliance & Risk": 4.2
+        },
+        "weightedTotal": 4.52,
+        "rank": 1,
+        "remarks": "Best price, 3-year after-sales with on-site service. Recommended for award."
+      },
+      {
+        "vendorId": "VND-002",
+        "vendorName": "NextIT",
+        "scores": {
+          "Price / TCO": 4.2,
+          "Quality & Spec": 4.8,
+          "Delivery & Lead Time": 4.5,
+          "Financial Stability": 4.0,
+          "After-Sales Service": 4.5,
+          "Compliance & Risk": 4.0
+        },
+        "weightedTotal": 4.41,
+        "rank": 2,
+        "remarks": "Highest quality, but price 8% higher and 28-day delivery."
+      },
+      {
+        "vendorId": "VND-003",
+        "vendorName": "ProGadget",
+        "scores": {
+          "Price / TCO": 4.5,
+          "Quality & Spec": 4.0,
+          "Delivery & Lead Time": 4.8,
+          "Financial Stability": 3.8,
+          "After-Sales Service": 4.2,
+          "Compliance & Risk": 3.9
+        },
+        "weightedTotal": 4.30,
+        "rank": 3,
+        "remarks": "Fastest delivery (14 days), but unclear after-sale service terms."
+      },
+      {
+        "vendorId": "VND-004",
+        "vendorName": "iTrade",
+        "scores": {
+          "Price / TCO": 3.9,
+          "Quality & Spec": 4.2,
+          "Delivery & Lead Time": 3.8,
+          "Financial Stability": 4.2,
+          "After-Sales Service": 4.0,
+          "Compliance & Risk": 4.5
+        },
+        "weightedTotal": 4.05,
+        "rank": 4,
+        "remarks": "Highest price overall. Not recommended."
+      }
+    ],
+    "decision": {
+      "awardedVendorId": "VND-001",
+      "awardedVendorName": "TechPlus Co., Ltd.",
+      "nextStep": "Proceed to PO issuance"
+    },
+    "approvalChain": [
+      { "role": "Evaluation Committee Chairman", "status": "approved" },
+      { "role": "Procurement Manager", "status": "approved" },
+      { "role": "CFO", "status": "approved" }
+    ],
+    "status": "approved"
+  }
+]

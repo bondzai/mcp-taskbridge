@@ -144,7 +144,7 @@ export const createRoutes = ({
     if (!health) {
       return res.status(503).json({ ok: false, error: "health tracker not configured" });
     }
-    const snap = health.snapshot({
+    const snap = await health.snapshot({
       repo,
       sseSize: sse?.size?.() ?? null,
       version: publicConfig.version ?? null,
@@ -209,40 +209,40 @@ export const createRoutes = ({
     }
   });
 
-  router.get("/api/tasks", (req, res) => {
+  router.get("/api/tasks", async (req, res) => {
     const limit = Number(req.query.limit) || undefined;
     const includeArchived = req.query.include_archived === "true" || req.query.include_archived === "1";
-    return res.json({ tasks: service.listAll(limit, { includeArchived }) });
+    return res.json({ tasks: await service.listAll(limit, { includeArchived }) });
   });
 
-  router.get("/api/tasks/:id", (req, res) => {
+  router.get("/api/tasks/:id", async (req, res) => {
     try {
-      return res.json(service.get(req.params.id));
+      return res.json(await service.get(req.params.id));
     } catch (err) {
       return sendError(res, err);
     }
   });
 
-  router.get("/api/tasks/:id/progress", (req, res) => {
+  router.get("/api/tasks/:id/progress", async (req, res) => {
     try {
-      const entries = service.getProgressLog(req.params.id);
+      const entries = await service.getProgressLog(req.params.id);
       return res.json({ entries });
     } catch (err) {
       return sendError(res, err);
     }
   });
 
-  router.get("/api/tasks/:id/attachments", (req, res) => {
+  router.get("/api/tasks/:id/attachments", async (req, res) => {
     try {
-      return res.json({ attachments: service.getAttachments(req.params.id) });
+      return res.json({ attachments: await service.getAttachments(req.params.id) });
     } catch (err) {
       return sendError(res, err);
     }
   });
 
-  router.get("/api/tasks/:id/attachments/:aid", (req, res) => {
+  router.get("/api/tasks/:id/attachments/:aid", async (req, res) => {
     try {
-      const att = service.getAttachmentContent(req.params.id, Number(req.params.aid));
+      const att = await service.getAttachmentContent(req.params.id, Number(req.params.aid));
       res.set("Content-Type", att.mimeType);
       res.set("Content-Disposition", `attachment; filename="${att.filename}"`);
       res.set("Content-Length", String(att.size));
@@ -254,7 +254,7 @@ export const createRoutes = ({
 
   router.get("/api/tasks/:id/attachments/:aid/text", async (req, res) => {
     try {
-      const att = service.getAttachmentContent(req.params.id, Number(req.params.aid));
+      const att = await service.getAttachmentContent(req.params.id, Number(req.params.aid));
       let text;
       if (att.mimeType === "text/plain") {
         text = att.content.toString("utf8");

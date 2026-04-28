@@ -43,12 +43,12 @@ export const createToolHandlers = ({ service, adapterId }) => {
       currentAdapter = resolveAdapter(id);
     },
     listPending: wrap(async ({ limit }) => {
-      const pending = service.listPending(limit);
+      const pending = await service.listPending(limit);
       return { count: pending.length, tasks: pending };
     }),
     getTask: wrap(async ({ task_id }) => {
-      const task = service.get(task_id);
-      const attachments = service.getAttachments?.(task_id) ?? [];
+      const task = await service.get(task_id);
+      const attachments = service.getAttachments ? await service.getAttachments(task_id) : [];
       return { ...task, attachments };
     }),
     claimTask: wrap(async ({ task_id, agent_id }) => {
@@ -69,7 +69,7 @@ export const createToolHandlers = ({ service, adapterId }) => {
       return { ok: true, task: failed };
     }),
     getAttachmentContent: wrap(async ({ task_id, attachment_id }) => {
-      const att = service.getAttachmentContent(task_id, attachment_id);
+      const att = await service.getAttachmentContent(task_id, attachment_id);
       let text;
       if (att.mimeType === "text/plain") {
         text = att.content.toString("utf8");

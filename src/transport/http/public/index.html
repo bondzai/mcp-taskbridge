@@ -18,21 +18,59 @@
       <div class="container">
         <header class="tb-page-header">
           <div>
-            <h1 id="tb-page-title"><i class="bi bi-speedometer2 me-2" aria-hidden="true"></i>Purchase Requests</h1>
+            <h1 id="tb-page-title"><i class="bi bi-cart3 me-2" aria-hidden="true"></i>Dashboard</h1>
             <p>Create, track, and manage procurement requests</p>
           </div>
-          <a href="/procurement-new.html" class="btn btn-primary">
-            <i class="bi bi-plus-lg me-1"></i>New Purchase Request
-          </a>
+          <button type="button" class="btn btn-primary" id="btn-toggle-new-pr">
+            <i class="bi bi-plus-lg me-1"></i>New PR
+          </button>
         </header>
 
-        <!-- Summary stat cards -->
+        <!-- Inline new PR form (collapsed by default) -->
+        <section id="pr-new-form" class="tb-inline-form" style="display:none" aria-label="Create purchase request">
+          <div class="tb-inline-form-card">
+            <div class="d-flex align-items-center justify-content-between mb-3">
+              <h2 class="h6 mb-0"><i class="bi bi-plus-circle me-2"></i>New Purchase Request</h2>
+              <button type="button" class="tb-icon-btn" id="btn-close-new-pr" title="Close" aria-label="Close form">
+                <i class="bi bi-x-lg"></i>
+              </button>
+            </div>
+            <form id="pr-form" novalidate>
+              <div class="row g-3 mb-3">
+                <div class="col-md-8">
+                  <label for="pr-title" class="form-label small fw-semibold">Title</label>
+                  <input type="text" id="pr-title" class="form-control" placeholder="e.g. Factory expansion — structural steel" required />
+                </div>
+                <div class="col-md-4">
+                  <label for="pr-deadline" class="form-label small fw-semibold">Deadline <span class="text-body-secondary fw-normal">(optional)</span></label>
+                  <input type="date" id="pr-deadline" class="form-control" />
+                </div>
+              </div>
+              <div class="mb-3">
+                <label for="pr-notes" class="form-label small fw-semibold">Notes <span class="text-body-secondary fw-normal">(optional)</span></label>
+                <textarea id="pr-notes" class="form-control" rows="2" placeholder="Requirements, constraints, budget notes..."></textarea>
+              </div>
+              <div class="mb-3">
+                <label class="form-label small fw-semibold">Line Items</label>
+                <div id="pr-items-container"></div>
+                <button type="button" class="btn btn-outline-secondary btn-sm mt-2" id="btn-add-item">
+                  <i class="bi bi-plus me-1"></i>Add item
+                </button>
+              </div>
+              <div class="d-flex gap-2 justify-content-end">
+                <button type="button" class="btn btn-outline-secondary" id="btn-save-draft">Save as Draft</button>
+                <button type="submit" class="btn btn-primary">
+                  <i class="bi bi-send me-1"></i>Submit for Approval
+                </button>
+              </div>
+            </form>
+          </div>
+        </section>
+
         <section class="tb-stats" id="pr-stats" aria-label="Summary statistics"></section>
 
-        <!-- Toolbar: filters, search, sort -->
         <section class="tb-toolbar" id="pr-toolbar" aria-label="PR filters"></section>
 
-        <!-- PR card list -->
         <section id="pr-list" aria-label="Purchase requests" aria-busy="true"></section>
 
         <nav id="pr-pagination" class="tb-pagination" aria-label="PR list pagination"></nav>
@@ -40,9 +78,7 @@
     </main>
 
     <footer class="tb-footer">
-      <div class="container">
-        Procurement Agent · <a href="https://modelcontextprotocol.io" target="_blank" rel="noreferrer" class="link-secondary">Model Context Protocol</a>
-      </div>
+      <div class="container">Procurement Agent</div>
     </footer>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>

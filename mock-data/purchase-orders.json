@@ -1,0 +1,67 @@
+[
+  {
+    "poNumber": "PO-2024-1102",
+    "buyer": {
+      "companyName": "ABC Co., Ltd.",
+      "address": "123 Sukhumvit Road, Khlong Toei, Bangkok 10110",
+      "taxId": "0-1055-64001-23-4",
+      "phone": "02-xxx-xxxx",
+      "email": "purchase@abc.co.th"
+    },
+    "vendorId": "VND-001",
+    "poDate": "2024-03-10",
+    "deliveryDeadline": "2024-03-31",
+    "deliveryDays": 21,
+    "paymentTerms": "Net 30 days after receiving goods and GRN",
+    "deliveryLocation": "ABC Co., Ltd. (Head Office) — IT Department, Floor 8",
+    "lineItems": [
+      {
+        "itemNumber": 1,
+        "itemName": "Laptop",
+        "specification": "Intel i7 / 16GB / 512GB SSD",
+        "quantity": 5,
+        "unit": "unit",
+        "unitPrice": 72000,
+        "total": 360000
+      },
+      {
+        "itemNumber": 2,
+        "itemName": "Monitor 27\"",
+        "specification": "4K IPS USB-C",
+        "quantity": 5,
+        "unit": "unit",
+        "unitPrice": 14500,
+        "total": 72500
+      },
+      {
+        "itemNumber": 3,
+        "itemName": "Wireless Headset",
+        "specification": "BT5 ANC 30hr",
+        "quantity": 10,
+        "unit": "set",
+        "unitPrice": 4800,
+        "total": 48000
+      },
+      {
+        "itemNumber": 4,
+        "itemName": "Docking Station",
+        "specification": "USB-C 100W HDMI x2",
+        "quantity": 5,
+        "unit": "unit",
+        "unitPrice": 4200,
+        "total": 21000
+      }
+    ],
+    "subtotal": 501500,
+    "vatRate": 7,
+    "vatAmount": 35105,
+    "grandTotal": 536605,
+    "currency": "THB",
+    "specialConditions": [
+      "Price includes VAT, shipping, and installation",
+      "Products must have warranty with on-site next business day service",
+      "Late delivery penalty: 0.1% per day"
+    ],
+    "status": "approved"
+  }
+]

@@ -6,7 +6,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { openDatabase } from "../src/core/db.js";
+import { createDatabase } from "../src/db/adapter.js";
+import { SQLITE_SCHEMA, migrateSqlite } from "../src/db/sqlite-schema.js";
 import { createEventBus } from "../src/core/events.js";
 import { createTasksRepository } from "../src/core/repo.js";
 import { createTaskService } from "../src/core/service.js";
@@ -47,7 +48,9 @@ const buildEnvironment = async () => {
   const dbPath = path.join(tmpDir, "tasks.db");
   const port = await freePort();
 
-  const db = openDatabase(dbPath);
+  const db = await createDatabase("sqlite", { path: dbPath });
+  await db.exec(SQLITE_SCHEMA);
+  await migrateSqlite(db);
   const repo = createTasksRepository(db);
   const events = createEventBus();
   const service = createTaskService({ repo, events });
@@ -60,7 +63,7 @@ const buildEnvironment = async () => {
 
   const cleanup = async () => {
     await new Promise((r) => httpServer.close(r));
-    db.close();
+    await db.close();
     try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
   };
 
@@ -133,7 +136,7 @@ test("integration: MCP stdio client lists → claims → completes a task", asyn
     assert.equal(claimed.task.status, "in_progress");
     assert.equal(claimed.task.agentId, "claude-cowork");
 
-    await waitFor(() => env.service.get(t.id).status === "in_progress");
+    await waitFor(async () => (await env.service.get(t.id)).status === "in_progress");
 
     parse(
       await client.callTool({
@@ -141,7 +144,7 @@ test("integration: MCP stdio client lists → claims → completes a task", asyn
         arguments: { task_id: t.id, message: "halfway there" },
       })
     );
-    await waitFor(() => env.service.get(t.id).progress === "halfway there");
+    await waitFor(async () => (await env.service.get(t.id)).progress === "halfway there");
 
     parse(
       await client.callTool({
@@ -149,9 +152,9 @@ test("integration: MCP stdio client lists → claims → completes a task", asyn
         arguments: { task_id: t.id, result: "the final answer" },
       })
     );
-    await waitFor(() => env.service.get(t.id).status === "done");
+    await waitFor(async () => (await env.service.get(t.id)).status === "done");
 
-    const final = env.service.get(t.id);
+    const final = await env.service.get(t.id);
     assert.equal(final.status, "done");
     assert.equal(final.result, "the final answer");
     assert.equal(final.agentId, "claude-cowork");

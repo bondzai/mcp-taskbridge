@@ -1,6 +1,6 @@
 import express from "express";
 import { validateCredentials } from "./users.js";
-import { signToken, COOKIE_NAME } from "./middleware.js";
+import { signToken, verifyToken, COOKIE_NAME } from "./middleware.js";
 
 const SESSION_MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
 
@@ -39,10 +39,11 @@ export const createAuthRoutes = () => {
     return res.json({ ok: true });
   });
 
-  /* GET /api/auth/me */
+  /* GET /api/auth/me — public path, verifies token directly */
   router.get("/api/auth/me", (req, res) => {
-    if (req.user) {
-      return res.json({ ok: true, user: { username: req.user.username, role: req.user.role } });
+    const user = req.user || verifyToken(req.cookies?.[COOKIE_NAME]);
+    if (user) {
+      return res.json({ ok: true, user: { username: user.username, role: user.role } });
     }
     return res.status(401).json({ ok: false, error: "not authenticated" });
   });

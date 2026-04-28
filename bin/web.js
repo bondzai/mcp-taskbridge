@@ -4,7 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { config } from "../src/config.js";
 import { createClientTracker } from "../src/core/client-detection.js";
-import { openDatabase } from "../src/core/db.js";
+import { createDatabase } from "../src/db/adapter.js";
 import { createEventBus } from "../src/core/events.js";
 import { DEFAULT_CHECKS } from "../src/core/external-checks.js";
 import { createTasksRepository, createAttachmentsRepository } from "../src/core/repo.js";
@@ -19,12 +19,14 @@ import {
   createRfqRepository,
   createVendorResponsesRepository,
   createStatusLogRepository,
+  createItemStatusLogRepository,
 } from "../src/procurement/repo.js";
 import { createProcurementService } from "../src/procurement/service.js";
 import { createProcurementToolHandlers, procurementToolDefinitions } from "../src/procurement/tools.js";
 import { createProcurementRoutes } from "../src/procurement/routes.js";
 import { evaluateShortlist } from "../src/procurement/decision-engine.js";
 import { ProcurementEvents } from "../src/procurement/events.js";
+import { buildRfqPayloads } from "../src/procurement/rfq-payload.js";
 import { createAuthMiddleware } from "../src/auth/middleware.js";
 import { createAuthRoutes } from "../src/auth/routes.js";
 
@@ -39,7 +41,24 @@ const readPackageVersion = () => {
 };
 
 const main = async () => {
-  const db = openDatabase(config.dbPath);
+  const dbDriver = process.env.DB_DRIVER || "sqlite";
+  const db = await createDatabase(dbDriver, {
+    path: config.dbPath,
+    url: process.env.DATABASE_URL,
+  });
+
+  if (dbDriver === "postgres") {
+    const { readFile } = await import("node:fs/promises");
+    const { join, dirname } = await import("node:path");
+    const { fileURLToPath: toPath } = await import("node:url");
+    const schemaPath = join(dirname(toPath(import.meta.url)), "../src/db/schema.sql");
+    await db.exec(await readFile(schemaPath, "utf8"));
+  } else {
+    const { SQLITE_SCHEMA, migrateSqlite } = await import("../src/db/sqlite-schema.js");
+    await db.exec(SQLITE_SCHEMA);
+    await migrateSqlite(db);
+  }
+
   const repo = createTasksRepository(db);
   const attachmentsRepo = createAttachmentsRepository(db);
   const events = createEventBus();
@@ -56,6 +75,7 @@ const main = async () => {
       rfq: createRfqRepository(db),
       vendorResponses: createVendorResponsesRepository(db),
       statusLog: createStatusLogRepository(db),
+      itemStatusLog: createItemStatusLogRepository(db),
     };
 
     const procService = createProcurementService({
@@ -68,24 +88,47 @@ const main = async () => {
     extraTools = procurementToolDefinitions(procHandlers);
     procurementRoutes = createProcurementRoutes({ service: procService });
 
+    // Wire event: on task.claimed → transition PR to processing
+    events.subscribe(async (event, data) => {
+      if (event !== "task.claimed" || !data?.metadata?.prId) return;
+      try {
+        await procService.onTaskClaimed(data.metadata.prId);
+        logger.info("PR moved to processing (agent claimed task)", { prId: data.metadata.prId });
+      } catch (err) {
+        logger.error("onTaskClaimed error", { prId: data.metadata.prId, error: err.message });
+      }
+    });
+
     // Wire event: on pr.sourced → run decision engine → create RFQ emails
     events.subscribe(async (event, data) => {
       if (event !== ProcurementEvents.PR_SOURCED) return;
       try {
-        const pr = procService.getPr(data.id);
+        const pr = await procService.getPr(data.id);
         const shortlist = pr.shortlist || [];
         const lineItems = pr.lineItems || [];
         const vendorIds = [...new Set(shortlist.map((s) => s.vendorId))];
-        const vendors = vendorIds.map((id) => procRepos.vendors.getById(id)).filter(Boolean);
+        const vendorPromises = vendorIds.map((id) => procRepos.vendors.getById(id));
+        const vendors = (await Promise.all(vendorPromises)).filter(Boolean);
 
         const result = evaluateShortlist({ shortlist, lineItems, vendors });
         if (result.valid && result.rfqPlan.length > 0) {
           await procService.createRfqEmails(data.id, result.rfqPlan);
-          logger.info("decision engine: RFQ emails created", {
+
+          // Build RFQ payloads for email service
+          const payloads = buildRfqPayloads({ pr, rfqPlan: result.rfqPlan, lineItems, vendors });
+          await procService.storeRfqPayloads(data.id, payloads);
+
+          logger.info("decision engine: RFQ payloads ready", {
             prId: data.id,
-            rfqCount: result.rfqPlan.length,
+            rfqCount: payloads.length,
+            totalValue: payloads.reduce((s, p) => s + p.metadata.totalEstimatedValue, 0),
             warnings: result.warnings,
           });
+
+          // TODO: publish to Google Pub/Sub when email service is ready
+          // for (const payload of payloads) {
+          //   await pubsub.publish("procurement.rfq.send", payload);
+          // }
         } else {
           logger.warn("decision engine: shortlist validation failed", {
             prId: data.id,

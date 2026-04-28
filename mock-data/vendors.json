@@ -1,0 +1,82 @@
+[
+  {
+    "vendorId": "VND-001",
+    "vendorName": "TechPlus Co., Ltd.",
+    "address": "456 Phra Ram 9 Road, Huai Khwang, Bangkok 10310",
+    "taxId": "0-1057-56002-33-1",
+    "phone": "02-yyy-yyyy",
+    "email": "sales@techplus.co.th",
+    "bankAccount": {
+      "bank": "Kasikorn Bank",
+      "branch": "Lat Phrao",
+      "accountNumber": "123-4-56789-0",
+      "accountName": "TechPlus Co., Ltd."
+    },
+    "categories": ["IT Equipment", "Office Equipment"],
+    "certifications": ["ISO 9001"],
+    "status": "active",
+    "riskScore": 1.2,
+    "createdAt": "2023-01-15",
+    "updatedAt": "2024-03-10"
+  },
+  {
+    "vendorId": "VND-002",
+    "vendorName": "NextIT Co., Ltd.",
+    "address": "789 Silom Road, Bang Rak, Bangkok 10500",
+    "taxId": "0-1057-78901-22-5",
+    "phone": "02-aaa-aaaa",
+    "email": "sales@nextit.co.th",
+    "bankAccount": {
+      "bank": "Bangkok Bank",
+      "branch": "Silom",
+      "accountNumber": "234-5-67890-1",
+      "accountName": "NextIT Co., Ltd."
+    },
+    "categories": ["IT Equipment", "Software"],
+    "certifications": ["ISO 9001", "ISO 27001"],
+    "status": "active",
+    "riskScore": 1.5,
+    "createdAt": "2022-06-01",
+    "updatedAt": "2024-02-20"
+  },
+  {
+    "vendorId": "VND-003",
+    "vendorName": "ProGadget Co., Ltd.",
+    "address": "321 Ratchadaphisek Road, Din Daeng, Bangkok 10400",
+    "taxId": "0-1057-34567-44-8",
+    "phone": "02-bbb-bbbb",
+    "email": "sales@progadget.co.th",
+    "bankAccount": {
+      "bank": "SCB",
+      "branch": "Ratchadaphisek",
+      "accountNumber": "345-6-78901-2",
+      "accountName": "ProGadget Co., Ltd."
+    },
+    "categories": ["IT Equipment", "Peripherals"],
+    "certifications": ["ISO 9001"],
+    "status": "active",
+    "riskScore": 2.0,
+    "createdAt": "2023-03-10",
+    "updatedAt": "2024-01-15"
+  },
+  {
+    "vendorId": "VND-004",
+    "vendorName": "iTrade Co., Ltd.",
+    "address": "555 Sukhumvit Road, Khlong Toei, Bangkok 10110",
+    "taxId": "0-1057-90123-55-3",
+    "phone": "02-ccc-cccc",
+    "email": "sales@itrade.co.th",
+    "bankAccount": {
+      "bank": "Krungsri",
+      "branch": "Sukhumvit",
+      "accountNumber": "456-7-89012-3",
+      "accountName": "iTrade Co., Ltd."
+    },
+    "categories": ["IT Equipment"],
+    "certifications": [],
+    "status": "active",
+    "riskScore": 2.8,
+    "createdAt": "2023-08-20",
+    "updatedAt": "2024-02-01"
+  }
+]
