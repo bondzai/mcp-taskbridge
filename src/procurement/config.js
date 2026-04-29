@@ -29,4 +29,6 @@ export const procurementConfig = Object.freeze({
   }),
   minVendorsPerItem: parseIntOr(env.PROCUREMENT_MIN_VENDORS_PER_ITEM, 2),
   rfqDeadlineHours: parseIntOr(env.PROCUREMENT_RFQ_DEADLINE_HOURS, 72),
+  emailServiceUrl: env.EMAIL_SERVICE_URL || null,
+  emailServiceApiKey: env.EMAIL_SERVICE_API_KEY || null,
 });

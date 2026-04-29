@@ -1,6 +1,8 @@
 import { ValidationError, NotFoundError, ConflictError } from "../core/service.js";
 import { PrStatus, ItemStatus, TERMINAL_PR_STATUSES, ALL_PR_STATUSES, TERMINAL_RFQ_STATUSES, ITEM_TERMINAL } from "./status.js";
 import { ProcurementEvents } from "./events.js";
+import { filterMockHistory } from "./mock-history.js";
+import { debugLog } from "./debug-log.js";
 
 const MAX_TITLE_LEN = 500;
 const MAX_NOTES_LEN = 4_000;
@@ -96,13 +98,14 @@ export const createProcurementService = ({ repos, events, taskService }) => {
 
   const recomputePrStatus = async (prId) => {
     const pr = await purchaseRequests.getById(prId);
-    if (!pr || ["draft", "pending_approval", "cancelled", "completed"].includes(pr.status)) return pr;
+    if (!pr || ["pending_approval", "cancelled", "completed"].includes(pr.status)) return pr;
     const items = await purchaseRequests.getLineItems(prId);
     const active = items.filter(i => i.status !== "cancelled");
     if (active.length === 0) return transitionPr(prId, pr.status, "cancelled");
     let newStatus = pr.status;
-    if (active.every(i => ["received"].includes(i.status))) newStatus = "completed";
-    else if (active.some(i => ["sourcing", "quoted", "selected", "ordered"].includes(i.status))) newStatus = "processing";
+    // Simplified: PR completes when all items are quoted (RFQ sent)
+    if (active.every(i => ["quoted", "selected", "ordered", "received"].includes(i.status))) newStatus = "completed";
+    else if (active.some(i => ["sourcing", "quoted"].includes(i.status))) newStatus = "processing";
     else if (active.every(i => i.status === "draft")) newStatus = "pending";
     if (newStatus !== pr.status) return transitionPr(prId, pr.status, newStatus);
     return pr;
@@ -129,9 +132,74 @@ export const createProcurementService = ({ repos, events, taskService }) => {
         pr.lineItems = [];
       }
 
-      await statusLog.insert(pr.id, null, PrStatus.DRAFT, cleanRequestedBy, null);
+      await statusLog.insert(pr.id, null, PrStatus.PENDING_APPROVAL, cleanRequestedBy, null);
       await emit(ProcurementEvents.PR_CREATED, pr);
       return pr;
+    },
+
+    async deletePr(id) {
+      const pr = await mustExistPr(id);
+      await purchaseRequests.deleteById(id);
+      await emit(ProcurementEvents.PR_CANCELLED, { ...pr, deleted: true });
+      return { deleted: true, id };
+    },
+
+    async exportPr(id) {
+      const pr = await this.getPr(id);
+      return {
+        title: pr.title,
+        requestedBy: pr.requestedBy,
+        deadline: pr.deadline,
+        notes: pr.notes,
+        lineItems: (pr.lineItems || []).map((i) => ({
+          materialName: i.materialName,
+          specification: i.specification,
+          quantity: i.quantity,
+          unit: i.unit,
+          notes: i.notes,
+        })),
+      };
+    },
+
+    async exportAll() {
+      const prs = await purchaseRequests.listAll(null, null, 500);
+      return {
+        exportedAt: Date.now(),
+        version: 1,
+        purchaseRequests: prs.map((pr) => ({
+          title: pr.title,
+          requestedBy: pr.requestedBy,
+          deadline: pr.deadline,
+          notes: pr.notes,
+          lineItems: (pr.lineItems || []).map((i) => ({
+            materialName: i.materialName,
+            specification: i.specification,
+            quantity: i.quantity,
+            unit: i.unit,
+            notes: i.notes,
+          })),
+        })),
+      };
+    },
+
+    async importPrs(payload) {
+      // Accept either a single PR object or { purchaseRequests: [...] }.
+      const list = Array.isArray(payload?.purchaseRequests)
+        ? payload.purchaseRequests
+        : (payload?.title ? [payload] : null);
+      if (!list || list.length === 0) {
+        throw new ValidationError("import payload must contain purchaseRequests[] or a single PR object");
+      }
+      const created = [];
+      for (const entry of list) {
+        const pr = await this.createPr(entry.title, entry.requestedBy ?? null, {
+          deadline: entry.deadline ?? null,
+          notes: entry.notes ?? null,
+          lineItems: entry.lineItems ?? [],
+        });
+        created.push(pr);
+      }
+      return { imported: created.length, purchaseRequests: created };
     },
 
     async getPr(id) {
@@ -154,8 +222,8 @@ export const createProcurementService = ({ repos, events, taskService }) => {
 
     async updateDraft(id, patch) {
       const pr = await mustExistPr(id);
-      if (pr.status !== PrStatus.DRAFT) {
-        throw new ConflictError(`PR ${id} is ${pr.status}, can only edit drafts`);
+      if (pr.status !== PrStatus.PENDING_APPROVAL) {
+        throw new ConflictError(`PR ${id} is ${pr.status}, can only edit while pending approval`);
       }
       const cleanPatch = {};
       if (patch.title != null) cleanPatch.title = requireString(patch.title, "title", MAX_TITLE_LEN);
@@ -169,8 +237,8 @@ export const createProcurementService = ({ repos, events, taskService }) => {
 
     async addLineItem(prId, item) {
       const pr = await mustExistPr(prId);
-      if (pr.status !== PrStatus.DRAFT) {
-        throw new ConflictError(`PR ${prId} is ${pr.status}, can only add items to drafts`);
+      if (pr.status !== PrStatus.PENDING_APPROVAL) {
+        throw new ConflictError(`PR ${prId} is ${pr.status}, can only add items while pending approval`);
       }
       const clean = validateLineItem(item);
       return await purchaseRequests.addLineItem(prId, clean);
@@ -178,16 +246,16 @@ export const createProcurementService = ({ repos, events, taskService }) => {
 
     async updateLineItem(prId, itemId, patch) {
       const pr = await mustExistPr(prId);
-      if (pr.status !== PrStatus.DRAFT) {
-        throw new ConflictError(`PR ${prId} is ${pr.status}, can only edit items in drafts`);
+      if (pr.status !== PrStatus.PENDING_APPROVAL) {
+        throw new ConflictError(`PR ${prId} is ${pr.status}, can only edit items while pending approval`);
       }
       return await purchaseRequests.updateLineItem(prId, itemId, patch);
     },
 
     async removeLineItem(prId, itemId) {
       const pr = await mustExistPr(prId);
-      if (pr.status !== PrStatus.DRAFT) {
-        throw new ConflictError(`PR ${prId} is ${pr.status}, can only remove items from drafts`);
+      if (pr.status !== PrStatus.PENDING_APPROVAL) {
+        throw new ConflictError(`PR ${prId} is ${pr.status}, can only remove items while pending approval`);
       }
       const ok = await purchaseRequests.removeLineItem(prId, itemId);
       if (!ok) throw new NotFoundError(`line item ${itemId}`);
@@ -195,16 +263,16 @@ export const createProcurementService = ({ repos, events, taskService }) => {
     },
 
     async submitForApproval(id) {
+      // PRs are now created directly in pending_approval — keep this as a
+      // no-op for backward compat with any caller still hitting /submit.
       const pr = await mustExistPr(id);
-      if (pr.status !== PrStatus.DRAFT) {
-        throw new ConflictError(`PR ${id} is ${pr.status}, must be draft to submit`);
+      if (pr.status !== PrStatus.PENDING_APPROVAL) {
+        throw new ConflictError(`PR ${id} is ${pr.status}, already submitted`);
       }
       if (!pr.lineItems || pr.lineItems.length === 0) {
         throw new ValidationError("cannot submit PR with no line items");
       }
-      const updated = await transitionPr(id, PrStatus.DRAFT, PrStatus.PENDING_APPROVAL);
-      await emit(ProcurementEvents.PR_SUBMITTED, updated);
-      return updated;
+      return pr;
     },
 
     async approve(id, approvedBy) {
@@ -286,8 +354,8 @@ export const createProcurementService = ({ repos, events, taskService }) => {
     },
 
     async submitShortlist(prId, shortlist) {
+      debugLog.add(prId, "submit_shortlist_received", { entryCount: shortlist?.length, raw: shortlist });
       const pr = await mustExistPr(prId);
-      // Allow submission during processing or approved (agent may submit before system transitions)
       if (pr.status !== PrStatus.PROCESSING && pr.status !== PrStatus.PENDING) {
         throw new ConflictError(
           `PR ${prId} is ${pr.status}, must be in processing or approved to submit shortlist`
@@ -296,10 +364,40 @@ export const createProcurementService = ({ repos, events, taskService }) => {
       if (!Array.isArray(shortlist) || shortlist.length === 0) {
         throw new ValidationError("shortlist must be a non-empty array");
       }
-      // Validate each entry has a vendorId
+
+      // Resolve each entry's vendorId — auto-create new vendors when the agent
+      // discovers them on the web (entry has `vendor` object instead of `vendorId`)
+      const newVendors = [];
       for (const entry of shortlist) {
-        if (!entry.vendorId) throw new ValidationError("each shortlist entry must have vendorId");
-        await mustExistVendor(entry.vendorId);
+        if (entry.vendorId) {
+          await mustExistVendor(entry.vendorId);
+          continue;
+        }
+        if (!entry.vendor || typeof entry.vendor !== "object") {
+          throw new ValidationError("each shortlist entry must have either vendorId or a vendor object");
+        }
+        const v = entry.vendor;
+        if (!v.name || !v.email) {
+          throw new ValidationError("new vendor must have name and email");
+        }
+        // Auto-insert
+        const created = await vendors.insert({
+          name: requireString(v.name, "vendor.name", 200),
+          email: requireString(v.email, "vendor.email", 200),
+          phone: optionalString(v.phone, "vendor.phone", 50),
+          address: optionalString(v.address, "vendor.address", 500),
+          categories: Array.isArray(v.categories) ? v.categories : [],
+          leadTimeDays: v.leadTimeDays != null ? Number(v.leadTimeDays) : null,
+          currency: v.currency || "USD",
+          notes: v.notes ? `Auto-created by agent during sourcing of PR ${prId}. ${v.notes}` : `Auto-created by agent during sourcing of PR ${prId}.`,
+        });
+        entry.vendorId = created.id;
+        newVendors.push(created);
+        debugLog.add(prId, "vendor_created", { vendorId: created.id, name: created.name, email: created.email });
+      }
+
+      if (newVendors.length > 0) {
+        await emit(ProcurementEvents.VENDOR_CREATED, { source: "agent-sourcing", prId, vendors: newVendors });
       }
 
       const entries = await purchaseRequests.insertShortlist(prId, shortlist);
@@ -358,14 +456,14 @@ export const createProcurementService = ({ repos, events, taskService }) => {
         pr = await purchaseRequests.insert(`${source.title} (copy)`, source.requestedBy, source.deadline, source.notes);
         pr.lineItems = [];
       }
-      await statusLog.insert(pr.id, null, PrStatus.DRAFT, "system", `Duplicated from PR ${id}`);
+      await statusLog.insert(pr.id, null, PrStatus.PENDING_APPROVAL, "system", `Duplicated from PR ${id}`);
       await emit(ProcurementEvents.PR_CREATED, pr);
       return pr;
     },
 
     async reprocessPr(id) {
       const pr = await mustExistPr(id);
-      if (pr.status === PrStatus.DRAFT || pr.status === PrStatus.PENDING_APPROVAL) {
+      if (pr.status === PrStatus.PENDING_APPROVAL) {
         throw new ConflictError(`PR ${id} is ${pr.status}, nothing to reprocess`);
       }
       const items = pr.lineItems || await purchaseRequests.getLineItems(id);
@@ -464,6 +562,10 @@ export const createProcurementService = ({ repos, events, taskService }) => {
 
     async storeRfqPayloads(prId, payloads) {
       rfqPayloadStore.set(prId, { payloads, createdAt: Date.now() });
+    },
+
+    getDebugLog(prId) {
+      return debugLog.get(prId);
     },
 
     getRfqPayloads(prId) {
@@ -614,7 +716,8 @@ export const createProcurementService = ({ repos, events, taskService }) => {
     },
 
     async getPurchaseHistory({ materialName, vendorId, limit } = {}) {
-      return await purchaseRequests.getCompletedHistory({
+      // Mock data for now — read-only, decoupled from PRs
+      return filterMockHistory({
         materialName: materialName ?? null,
         vendorId: vendorId ?? null,
         limit: clampLimit(limit, 50, 500),

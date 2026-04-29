@@ -97,8 +97,13 @@ export const createTaskService = ({ repo, events, attachmentsRepo }) => {
   };
 
   return {
-    async create(prompt, files) {
+    async create(prompt, filesOrMetadata) {
       const cleaned = requireNonEmptyString(prompt, "prompt", MAX_PROMPT_LEN);
+      // Distinguish files (array) from metadata (plain object)
+      const isFiles = Array.isArray(filesOrMetadata);
+      const files = isFiles ? filesOrMetadata : null;
+      const metadata = (!isFiles && filesOrMetadata && typeof filesOrMetadata === "object") ? filesOrMetadata : null;
+
       if (files && files.length > 0) {
         if (!attachmentsRepo) throw new ValidationError("file attachments not supported");
         if (files.length > MAX_ATTACHMENTS) throw new ValidationError(`max ${MAX_ATTACHMENTS} attachments`);
@@ -107,7 +112,7 @@ export const createTaskService = ({ repo, events, attachmentsRepo }) => {
           if (f.size > MAX_ATTACHMENT_SIZE) throw new ValidationError(`file exceeds ${MAX_ATTACHMENT_SIZE / 1024 / 1024} MB limit`);
         }
       }
-      const task = await repo.insert(cleaned);
+      const task = await repo.insert(cleaned, metadata);
       let attachments = [];
       if (files && files.length > 0) {
         attachments = await attachmentsRepo.insertMany(task.id, files);

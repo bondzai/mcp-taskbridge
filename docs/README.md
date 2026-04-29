@@ -11,6 +11,7 @@ Pick the doc that matches what you're doing. Each one is single-purpose and self
 | [e2e-test.md](e2e-test.md) | You're verifying a fresh install end-to-end — Path A (HTTP only) + Path B (real MCP client). |
 | [cowork.md](cowork.md) | You're wiring taskbridge into Claude Cowork (or any cloud MCP client that only accepts remote HTTPS). |
 | [cloudflare-tunnel.md](cloudflare-tunnel.md) | You want a **permanent** public HTTPS URL for taskbridge via a Cloudflare named tunnel. Canonical production setup. |
+| [cloud-run.md](cloud-run.md) | You're deploying to Google Cloud Run with Supabase PostgreSQL — env file, deploy script, monitoring, rollback. |
 
 See also:
 

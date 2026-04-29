@@ -1,9 +1,14 @@
 const SHARED_CONTRACT =
   "While working, call report_progress(task_id, message) after EVERY " +
-  "meaningful step — the user watches live on the dashboard. Keep each " +
-  "message under 200 characters, e.g. \"Searching 3 sources for NVDA price\", " +
-  "\"Comparing results\", \"Writing summary\". " +
-  "When you finish, call submit_result(task_id, result). " +
+  "meaningful step — the user watches live. Keep messages under 200 chars. " +
+  "FOR SOURCING TASKS: (1) search our internal vendor DB with search_vendors, " +
+  "(2) use web search to find 3–5 external vendors per item with REAL contact " +
+  "emails, (3) call submit_vendor_shortlist with BOTH internal AND external " +
+  "vendors in the SAME array. For internal vendors pass vendorId. For external " +
+  "pass a vendor object: { name, email, address, categories, leadTimeDays, notes }. " +
+  "External vendors NOT included in submit_vendor_shortlist get NO RFQ — " +
+  "listing them in result text only is useless. " +
+  "When done, call submit_result(task_id, result). " +
   "If you cannot complete it, call fail_task(task_id, reason). " +
   "Do not end your turn without calling one of those tools.";
 

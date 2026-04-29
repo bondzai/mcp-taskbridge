@@ -115,7 +115,7 @@ export const renderMarkdown = (text) => {
 /* ---------- Navbar ---------- */
 
 const NAV_LINKS = [
-  { href: "/", label: "Purchase Requests", icon: "bi-cart3", match: ["/", "/index.html", "/procurement-detail.html", "/procurement-new.html"] },
+  { href: "/", label: "Purchase Requisitions", icon: "bi-cart3", match: ["/", "/index.html", "/procurement-detail.html", "/procurement-new.html"] },
   { href: "/vendors.html", label: "Vendors", icon: "bi-building", match: ["/vendors.html"] },
   { href: "/history.html", label: "Purchase History", icon: "bi-clock-history", match: ["/history.html"] },
   { href: "/status.html", label: "System", icon: "bi-activity", match: ["/status.html"] },

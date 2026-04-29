@@ -1488,6 +1488,53 @@ html[data-theme="dim"] .tb-pill-failed {
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--tb-accent) 20%, transparent);
 }
 
+/* Live update pulse — fires when SSE pushes a status change */
+@keyframes tb-pr-card-pulse {
+  0%   { box-shadow: 0 0 0 0 color-mix(in srgb, var(--tb-accent) 60%, transparent); }
+  60%  { box-shadow: 0 0 0 8px color-mix(in srgb, var(--tb-accent) 0%, transparent); }
+  100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--tb-accent) 0%, transparent); }
+}
+.tb-pr-card-pulse {
+  animation: tb-pr-card-pulse 1.5s ease-out;
+  border-color: var(--tb-accent);
+}
+
+/* In-flight indicator on processing PRs — subtle animated border glow */
+@keyframes tb-pr-flow {
+  0%, 100% { border-color: var(--tb-border); }
+  50%      { border-color: color-mix(in srgb, var(--tb-accent) 60%, var(--tb-border)); }
+}
+.tb-pr-card[data-pr-status="processing"],
+.tb-pr-card[data-pr-status="pending"] {
+  animation: tb-pr-flow 2.5s ease-in-out infinite;
+}
+
+/* Item progress bar — animated stripe for items currently in flight */
+@keyframes tb-progress-stripe {
+  0%   { background-position: 0 0; }
+  100% { background-position: 24px 0; }
+}
+.tb-item-progress-active {
+  background-image: repeating-linear-gradient(
+    45deg,
+    var(--tb-accent),
+    var(--tb-accent) 6px,
+    color-mix(in srgb, var(--tb-accent) 70%, white) 6px,
+    color-mix(in srgb, var(--tb-accent) 70%, white) 12px
+  );
+  background-size: 24px 100%;
+  animation: tb-progress-stripe 1.5s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tb-pr-card[data-pr-status="processing"],
+  .tb-pr-card[data-pr-status="pending"],
+  .tb-pr-card-pulse,
+  .tb-item-progress-active {
+    animation: none !important;
+  }
+}
+
 .tb-pr-card-header {
   display: flex;
   align-items: flex-start;

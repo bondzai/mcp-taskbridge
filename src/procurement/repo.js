@@ -390,7 +390,7 @@ export const createPurchaseRequestsRepository = (db) => {
         `INSERT INTO purchase_requests (id, title, status, requested_by, deadline, notes, created_at, updated_at)
         VALUES (@id, @title, @status, @requestedBy, @deadline, @notes, @now, @now)`,
         {
-          id, title, status: "draft",
+          id, title, status: "pending_approval",
           requestedBy: requestedBy ?? null,
           deadline: deadline ?? null,
           notes: notes ?? null,
@@ -407,7 +407,7 @@ export const createPurchaseRequestsRepository = (db) => {
           `INSERT INTO purchase_requests (id, title, status, requested_by, deadline, notes, created_at, updated_at)
           VALUES (@id, @title, @status, @requestedBy, @deadline, @notes, @now, @now)`,
           {
-            id, title, status: "draft",
+            id, title, status: "pending_approval",
             requestedBy: requestedBy ?? null,
             deadline: deadline ?? null,
             notes: notes ?? null,
@@ -434,6 +434,16 @@ export const createPurchaseRequestsRepository = (db) => {
       const lineRows = await db.query(`SELECT * FROM pr_line_items WHERE pr_id = @id ORDER BY id ASC`, { id });
       pr.lineItems = lineRows.map(rowToLineItem);
       return pr;
+    },
+    async deleteById(id) {
+      // Some child tables don't have ON DELETE CASCADE — delete them first.
+      await db.transaction(async (tx) => {
+        await tx.execute(`DELETE FROM pr_item_status_log WHERE pr_id = @id`, { id });
+        await tx.execute(`DELETE FROM rfq_emails WHERE pr_id = @id`, { id });
+        await tx.execute(`DELETE FROM vendor_responses WHERE pr_id = @id`, { id });
+        await tx.execute(`DELETE FROM purchase_requests WHERE id = @id`, { id });
+      });
+      return true;
     },
     async getById(id) {
       if (!id) return null;
@@ -497,7 +507,7 @@ export const createPurchaseRequestsRepository = (db) => {
           deadline = COALESCE(@deadline, deadline),
           notes = COALESCE(@notes, notes),
           updated_at = @now
-        WHERE id = @id AND status = 'draft'`,
+        WHERE id = @id AND status = 'pending_approval'`,
         {
           id,
           title: patch.title ?? null,

@@ -16,5 +16,6 @@ export const ProcurementEvents = Object.freeze({
   RFQ_CREATED: "rfq.created",
   RFQ_STATUS_UPDATED: "rfq.status_updated",
   VENDOR_RESPONSE_RECEIVED: "vendor_response.received",
+  VENDOR_CREATED: "vendor.created",
   ITEM_STATUS_CHANGED: "pr.item.status_changed",
 });

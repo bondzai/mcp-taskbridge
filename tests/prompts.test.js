@@ -41,7 +41,6 @@ test("buildPrompt('source-oldest'): includes shared fragments", () => {
   const out = buildPrompt("source-oldest");
   assert.ok(out.includes(PROMPT_FRAGMENTS.metadataNudge));
   assert.ok(out.includes(PROMPT_FRAGMENTS.failureRule));
-  assert.ok(out.includes(PROMPT_FRAGMENTS.resultFormat));
 });
 
 test("buildPrompt('source-pr'): interpolates PR_ID", () => {

@@ -1,7 +1,27 @@
 import express from "express";
+import multer from "multer";
 import { ValidationError, NotFoundError, ConflictError } from "../core/service.js";
+import { createLlmProvider } from "../llm/provider.js";
 
 const JSON_LIMIT = "1mb";
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024, files: 1 },
+  fileFilter: (_req, file, cb) => {
+    cb(null, ["application/pdf", "text/plain"].includes(file.mimetype));
+  },
+});
+
+const extractText = async (file) => {
+  if (file.mimetype === "text/plain") return file.buffer.toString("utf8");
+  if (file.mimetype === "application/pdf") {
+    const { default: pdfParse } = await import("pdf-parse/lib/pdf-parse.js");
+    const result = await pdfParse(file.buffer);
+    return result.text || "";
+  }
+  throw new ValidationError(`unsupported mime type: ${file.mimetype}`);
+};
 
 const statusForError = (err) => {
   if (err instanceof ValidationError) return 400;
@@ -19,6 +39,7 @@ export const createProcurementRoutes = ({ service }) => {
   const router = express.Router();
   const json = express.json({ limit: JSON_LIMIT });
 
+
   /* ═══════ PR Lifecycle ═══════ */
 
   router.post("/api/procurement/prs", json, async (req, res) => {
@@ -26,6 +47,55 @@ export const createProcurementRoutes = ({ service }) => {
       const { title, requestedBy, deadline, notes, lineItems } = req.body ?? {};
       const pr = await service.createPr(title, requestedBy, { deadline, notes, lineItems });
       return res.status(201).json(pr);
+    } catch (err) {
+      return sendError(res, err);
+    }
+  });
+
+  router.get("/api/procurement/prs/export", async (req, res) => {
+    try {
+      const data = await service.exportAll();
+      res.setHeader("Content-Disposition", `attachment; filename="prs-${Date.now()}.json"`);
+      return res.json(data);
+    } catch (err) {
+      return sendError(res, err);
+    }
+  });
+
+  router.post("/api/procurement/prs/from-file", (req, res) => {
+    upload.single("file")(req, res, async (err) => {
+      if (err) return sendError(res, new ValidationError(err.message));
+      if (!req.file) return sendError(res, new ValidationError("file is required"));
+      try {
+        const text = await extractText(req.file);
+        if (!text || text.trim().length < 20) {
+          return sendError(res, new ValidationError("document had no readable text"));
+        }
+        const provider = await createLlmProvider();
+        const extracted = await provider.extractPrFromDocument(text, {
+          filename: req.file.originalname,
+        });
+        return res.json({ extracted, provider: provider.name, model: provider.model });
+      } catch (e) {
+        return sendError(res, e);
+      }
+    });
+  });
+
+  router.post("/api/procurement/prs/import", json, async (req, res) => {
+    try {
+      const result = await service.importPrs(req.body ?? {});
+      return res.status(201).json(result);
+    } catch (err) {
+      return sendError(res, err);
+    }
+  });
+
+  router.get("/api/procurement/prs/:id/export", async (req, res) => {
+    try {
+      const data = await service.exportPr(req.params.id);
+      res.setHeader("Content-Disposition", `attachment; filename="pr-${req.params.id}.json"`);
+      return res.json(data);
     } catch (err) {
       return sendError(res, err);
     }
@@ -57,6 +127,15 @@ export const createProcurementRoutes = ({ service }) => {
     try {
       const updated = await service.updateDraft(req.params.id, req.body ?? {});
       return res.json(updated);
+    } catch (err) {
+      return sendError(res, err);
+    }
+  });
+
+  router.delete("/api/procurement/prs/:id", async (req, res) => {
+    try {
+      const result = await service.deletePr(req.params.id);
+      return res.json(result);
     } catch (err) {
       return sendError(res, err);
     }
@@ -154,6 +233,15 @@ export const createProcurementRoutes = ({ service }) => {
     try {
       const pr = await service.reprocessPr(req.params.id);
       return res.json(pr);
+    } catch (err) {
+      return sendError(res, err);
+    }
+  });
+
+  router.get("/api/procurement/prs/:id/debug-log", async (req, res) => {
+    try {
+      const log = service.getDebugLog(req.params.id);
+      return res.json({ log });
     } catch (err) {
       return sendError(res, err);
     }

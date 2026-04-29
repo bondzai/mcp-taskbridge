@@ -172,17 +172,23 @@ const vendorCardList = (v) => {
   const isInactive = v.active === false;
   const matCount = v.material_count ?? v.materials?.length ?? 0;
 
+  const isAiCreated = typeof v.notes === "string" && v.notes.startsWith("Auto-created by agent");
+  const createdAt = v.created_at || v.createdAt;
+  const createdAtLabel = createdAt ? new Date(createdAt).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" }) : null;
+
   return html`
     <div class="tb-pr-card ${isInactive ? "tb-vendor-inactive" : ""}" data-vendor-id="${v.id}">
       <div class="tb-pr-card-header">
         <div class="d-flex align-items-center gap-2 flex-wrap">
           <i class="bi bi-building text-body-secondary"></i>
           <span class="fw-semibold">${v.name || "Unnamed"}</span>
+          ${isAiCreated ? html`<span class="badge bg-info bg-opacity-25 text-info border border-info border-opacity-50" title="${v.notes}"><i class="bi bi-robot me-1"></i>AI sourced</span>` : ""}
           ${isInactive ? html`<span class="tb-pill tb-pill-cancelled"><i class="bi bi-slash-circle"></i>inactive</span>` : ""}
         </div>
         <div class="d-flex align-items-center gap-2 text-body-secondary small">
           ${v.lead_time_days != null ? html`<span><i class="bi bi-clock me-1"></i>${v.lead_time_days}d lead</span>` : ""}
           ${v.material_count != null ? html`<span><i class="bi bi-box me-1"></i>${v.material_count} materials</span>` : ""}
+          ${createdAtLabel ? html`<span title="Created"><i class="bi bi-calendar-plus me-1"></i>${createdAtLabel}</span>` : ""}
         </div>
       </div>
       <div class="tb-pr-card-body">
@@ -266,17 +272,21 @@ const vendorCardGrid = (v) => {
   const cats = Array.isArray(v.categories) ? v.categories : [];
   const isInactive = v.active === false;
   const matCount = v.material_count ?? v.materials?.length ?? 0;
+  const isAiCreated = typeof v.notes === "string" && v.notes.startsWith("Auto-created by agent");
+  const createdAt = v.created_at || v.createdAt;
+  const createdAtLabel = createdAt ? new Date(createdAt).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" }) : null;
 
   return html`
     <div class="tb-vendor-card-grid ${isInactive ? "tb-vendor-inactive" : ""}" data-vendor-id="${v.id}">
       <div class="tb-vendor-card-name">
         ${v.name || "Unnamed"}
+        ${isAiCreated ? html`<span class="badge bg-info bg-opacity-25 text-info border border-info border-opacity-50" style="font-size:0.7rem" title="${v.notes}"><i class="bi bi-robot me-1"></i>AI sourced</span>` : ""}
         ${isInactive ? html`<span class="tb-pill tb-pill-cancelled" style="font-size:0.7rem"><i class="bi bi-slash-circle"></i>inactive</span>` : ""}
       </div>
       ${v.email ? html`<div class="tb-vendor-card-email">${v.email}</div>` : ""}
       ${cats.length > 0 ? html`<div class="tb-vendor-card-cats">${cats.join(", ")}</div>` : ""}
       <div class="tb-vendor-card-meta">
-        ${matCount} material${matCount !== 1 ? "s" : ""}${v.lead_time_days != null ? html` &middot; ${v.lead_time_days}d lead time` : ""}
+        ${matCount} material${matCount !== 1 ? "s" : ""}${v.lead_time_days != null ? html` &middot; ${v.lead_time_days}d lead time` : ""}${createdAtLabel ? html` &middot; added ${createdAtLabel}` : ""}
       </div>
       <div class="tb-vendor-card-actions">
         <button type="button" class="btn btn-outline-info btn-sm" data-action="toggle-kpis" data-id="${v.id}">

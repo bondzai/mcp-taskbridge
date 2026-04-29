@@ -241,17 +241,8 @@ const itemStatusDot = (status) => html`
 `;
 
 const itemActions = (item) => {
-  const s = item.status || "draft";
-  switch (s) {
-    case "quoted":
-      return html`<button type="button" class="btn btn-sm btn-outline-primary tb-item-action" data-item-action="select-vendor" data-item-id="${item.id}"><i class="bi bi-check2 me-1"></i>Select vendor</button>`;
-    case "selected":
-      return html`<button type="button" class="btn btn-sm btn-outline-primary tb-item-action" data-item-action="create-po" data-item-id="${item.id}"><i class="bi bi-file-earmark-plus me-1"></i>Create PO</button>`;
-    case "ordered":
-      return html`<button type="button" class="btn btn-sm btn-outline-success tb-item-action" data-item-action="mark-received" data-item-id="${item.id}"><i class="bi bi-box-seam me-1"></i>Mark received</button>`;
-    default:
-      return "";
-  }
+  // PO and receive steps removed for now — items terminate at "quoted" (RFQ sent).
+  return "";
 };
 
 const itemDetailInfo = (item) => {
@@ -443,6 +434,69 @@ const renderAll = () => {
   renderShortlist();
   renderRfqStatus();
   renderComparison();
+  renderAgentResult();
+  renderDebugLog();
+};
+
+const renderAgentResult = async () => {
+  const el = document.getElementById("pr-agent-result");
+  if (!el || !pr?.sourcingTaskId) return;
+  try {
+    const res = await fetch(`/api/tasks/${pr.sourcingTaskId}`);
+    if (!res.ok) {
+      el.innerHTML = '<div class="text-body-secondary small">No agent result yet.</div>';
+      return;
+    }
+    const task = await res.json();
+    if (!task.result) {
+      el.innerHTML = `<div class="text-body-secondary small">Agent task is <span class="badge bg-secondary">${task.status}</span> — result will appear here when submit_result is called.</div>`;
+      return;
+    }
+    el.innerHTML = toString(html`
+      <div class="d-flex gap-2 align-items-center mb-2 small text-body-secondary">
+        <span class="badge bg-success">${task.status}</span>
+        <span><i class="bi bi-robot me-1"></i>${task.agentId || "—"}</span>
+        ${task.model ? html`<span><i class="bi bi-cpu me-1"></i>${task.model}</span>` : ""}
+        ${task.totalTokens ? html`<span><i class="bi bi-coin me-1"></i>${task.totalTokens.toLocaleString()} tokens</span>` : ""}
+      </div>
+      <div class="tb-prose">${raw(window.marked && window.DOMPurify ? window.DOMPurify.sanitize(window.marked.parse(task.result)) : "<pre>" + task.result.replace(/[<>&]/g, c => ({"<":"&lt;",">":"&gt;","&":"&amp;"}[c])) + "</pre>")}</div>
+      <details class="mt-3">
+        <summary class="small text-body-secondary">Show raw markdown</summary>
+        <pre class="tb-codeblock small mt-2">${task.result}</pre>
+      </details>
+    `);
+  } catch (err) {
+    el.innerHTML = `<div class="text-danger small">Failed to load agent result: ${err.message}</div>`;
+  }
+};
+
+const renderDebugLog = async () => {
+  const el = document.getElementById("pr-debug-log");
+  if (!el) return;
+  try {
+    const res = await fetch(`/api/procurement/prs/${pr.id}/debug-log`);
+    if (!res.ok) return;
+    const { log } = await res.json();
+    if (!log || log.length === 0) {
+      el.innerHTML = '<div class="text-body-secondary small">No agent activity yet. Will populate when an agent calls submit_vendor_shortlist or the decision engine runs.</div>';
+      return;
+    }
+    el.innerHTML = toString(html`
+      <div class="tb-debug-log">
+        ${log.slice().reverse().map(entry => html`
+          <details class="tb-debug-entry">
+            <summary>
+              <span class="tb-mono small text-body-secondary">${new Date(entry.ts).toLocaleTimeString()}</span>
+              <span class="badge bg-secondary ms-2">${entry.type}</span>
+            </summary>
+            <pre class="tb-codeblock small mt-2">${JSON.stringify(entry.data, null, 2)}</pre>
+          </details>
+        `)}
+      </div>
+    `);
+  } catch (err) {
+    el.innerHTML = `<div class="text-danger small">Failed to load debug log: ${err.message}</div>`;
+  }
 };
 
 /* ---------- Item action handlers ---------- */

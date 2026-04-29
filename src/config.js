@@ -32,5 +32,7 @@ export const config = {
   procurement: {
     enabled: env.PROCUREMENT_ENABLED === "true" || env.PROCUREMENT_ENABLED === "1",
     gcpProject: env.PROCUREMENT_GCP_PROJECT || null,
+    emailServiceUrl: env.EMAIL_SERVICE_URL || null,
+    emailServiceApiKey: env.EMAIL_SERVICE_API_KEY || null,
   },
 };

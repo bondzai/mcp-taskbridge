@@ -5,6 +5,81 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.0.0] — 2026-04-29
+
+First production release. Rebranded from `mcp-taskbridge` to `procurement-agent`.
+
+### Added
+
+- **Procurement domain module** (`src/procurement/`) — full PR lifecycle:
+  - 8 SQLite tables: vendors, vendor_materials, purchase_requests,
+    pr_line_items, pr_vendor_shortlist, rfq_emails, vendor_responses,
+    pr_status_log, pr_item_status_log
+  - 7 PR statuses: `draft`, `pending_approval`, `pending`, `processing`,
+    `failed`, `completed`, `cancelled`
+  - 7 item-level statuses: `draft → sourcing → quoted → selected → ordered → received`
+  - Per-item audit trail with notes
+- **MCP tools for sourcing agents**:
+  - `search_vendors`, `get_vendor_details`, `list_vendor_materials`
+  - `get_purchase_request`, `get_pr_line_items`, `get_purchase_history`
+  - `submit_vendor_shortlist`, `update_item_status`
+- **Decision engine** — pure rule-based validation of vendor shortlists
+  with coverage/price/min-vendor/deadline checks.
+- **RFQ payload builder** — generates JSON for the email service
+  (one payload per vendor, items merged).
+- **Email service HTTP client** (`src/procurement/email-client.js`) —
+  POSTs RFQ payloads to a configurable endpoint with `X-API-Key` auth.
+  Mock mode when `EMAIL_SERVICE_URL` is unset.
+- **Auth system** — cookie-based session auth with HMAC-signed tokens,
+  mock admin/viewer users, login page, navbar avatar dropdown.
+- **Cloud Run deployment** (`Dockerfile`, `deploy.sh`,
+  `docker-compose.yml`).
+- **Database abstraction layer** (`src/db/`) — adapter interface
+  supporting both SQLite (local + tests) and PostgreSQL/Supabase
+  (production). Single batch queries, no N+1.
+- **Web UI overhaul**:
+  - Dashboard with clickable stat cards (filter by phase)
+  - Inline PR creation form (no separate page)
+  - Per-item status timeline + comparison table
+  - Purchase History (read-only, mock data)
+  - Vendor management with KPI dashboard
+  - Live SSE updates with `res.flush()` for Cloud Run compatibility
+- **Duplicate / Reprocess PR** actions for quick testing.
+- **Mock purchase history** (`src/procurement/mock-history.js`) —
+  read-only reference data decoupled from PRs.
+- **Seed script** (`bin/seed.js`) with vendors, materials, and PRs.
+
+### Changed
+
+- Rebranded from "MCP Taskbridge" to "Procurement Agent" across
+  navbar, page titles, footer, prompts, and adapter instructions.
+- Approve action auto-creates the sourcing task (no manual
+  "Start Sourcing" button).
+- PR moves to `processing` automatically when an agent claims the
+  sourcing task (via `task.claimed` event + metadata.prId).
+- Repos and services converted to async (adapter interface).
+- Dashboard merged "Tasks" view into the unified PR list.
+
+### Fixed
+
+- `/api/auth/me` was 401 on a public path — now verifies the cookie
+  token directly.
+- Task `metadata` was being interpreted as `files` parameter,
+  silently dropped. `service.create(prompt, metadata)` now correctly
+  distinguishes arrays (files) from objects (metadata).
+- N+1 query when listing PRs — replaced with single batch query.
+- SSE buffering on Cloud Run — added `res.flush()` after every write
+  + `Content-Encoding: identity` header.
+- Cloud Run `PORT` env var support — config now reads `process.env.PORT`
+  and binds to `0.0.0.0` instead of `127.0.0.1`.
+
+### Production
+
+- Deployed as `procurement-core` on Cloud Run (asia-southeast1).
+- Database: Supabase PostgreSQL via direct connection.
+- Email service: Cloud Function at
+  `https://asia-southeast1-freeform-agents.cloudfunctions.net/procurement_mail_api/rfqs`.
+
 ## [0.6.1] — 2026-04-13
 
 ### Changed

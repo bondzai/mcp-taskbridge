@@ -146,13 +146,28 @@ export const procurementToolDefinitions = (handlers) => [
     config: {
       title: "Submit Vendor Shortlist",
       description:
-        "Submit a vendor shortlist for a purchase request. This transitions the PR from " +
-        "sourcing to sourced. Each entry maps a vendor to a line item with an optional " +
-        "reference price. After submission, the decision engine validates and creates RFQ emails.",
+        "Submit a vendor shortlist for a purchase request. This transitions the PR " +
+        "from sourcing to sourced. Each entry maps a vendor to a line item with an " +
+        "optional reference price. After submission, the decision engine validates " +
+        "and the email service is called.\n\n" +
+        "Each entry must have EITHER `vendorId` (existing vendor in our database) " +
+        "OR `vendor` (a new vendor object — the system auto-creates the vendor record " +
+        "and uses it). Use `vendor` when you discover suppliers via web search that " +
+        "aren't in our database yet.",
       inputSchema: {
         pr_id: z.string().describe("Purchase request id"),
         shortlist: z.array(z.object({
-          vendorId: z.string().describe("Vendor id"),
+          vendorId: z.string().optional().describe("Existing vendor id from search_vendors. Omit when registering a new vendor."),
+          vendor: z.object({
+            name: z.string().describe("Company name"),
+            email: z.string().describe("Contact email — RFQ will be sent here"),
+            phone: z.string().optional(),
+            address: z.string().optional(),
+            categories: z.array(z.string()).optional().describe("Material categories e.g. ['steel','electrical']"),
+            leadTimeDays: z.number().int().positive().optional(),
+            currency: z.string().optional().describe("Default 'USD'"),
+            notes: z.string().optional().describe("Why this vendor — source URL, reasoning"),
+          }).optional().describe("New vendor data (auto-creates record). Use ONLY when vendor isn't in our database."),
           lineItemId: z.number().int().optional().describe("Line item id (omit to cover all items)"),
           referencePrice: z.number().optional().describe("Expected unit price"),
           notes: z.string().optional().describe("Notes about this vendor for this item"),

@@ -27,6 +27,8 @@ import { createProcurementRoutes } from "../src/procurement/routes.js";
 import { evaluateShortlist } from "../src/procurement/decision-engine.js";
 import { ProcurementEvents } from "../src/procurement/events.js";
 import { buildRfqPayloads } from "../src/procurement/rfq-payload.js";
+import { createEmailClient } from "../src/procurement/email-client.js";
+import { debugLog } from "../src/procurement/debug-log.js";
 import { createAuthMiddleware } from "../src/auth/middleware.js";
 import { createAuthRoutes } from "../src/auth/routes.js";
 
@@ -84,6 +86,17 @@ const main = async () => {
       taskService: service,
     });
 
+    const emailClient = createEmailClient({
+      url: procurementConfig.emailServiceUrl,
+      apiKey: procurementConfig.emailServiceApiKey,
+      logger,
+    });
+    if (emailClient.isMock) {
+      logger.info("email client: MOCK mode (set EMAIL_SERVICE_URL to enable)");
+    } else {
+      logger.info("email client: configured", { url: procurementConfig.emailServiceUrl });
+    }
+
     const procHandlers = createProcurementToolHandlers({ service: procService });
     extraTools = procurementToolDefinitions(procHandlers);
     procurementRoutes = createProcurementRoutes({ service: procService });
@@ -110,30 +123,50 @@ const main = async () => {
         const vendorPromises = vendorIds.map((id) => procRepos.vendors.getById(id));
         const vendors = (await Promise.all(vendorPromises)).filter(Boolean);
 
+        debugLog.add(data.id, "decision_engine_input", {
+          shortlistCount: shortlist.length,
+          vendorCount: vendors.length,
+          vendorIds: vendorIds,
+          vendorsLoaded: vendors.map(v => ({ id: v.id, name: v.name, email: v.email })),
+        });
+
         const result = evaluateShortlist({ shortlist, lineItems, vendors });
+        debugLog.add(data.id, "decision_engine_output", {
+          valid: result.valid,
+          rfqPlanCount: result.rfqPlan?.length || 0,
+          warnings: result.warnings,
+          errors: result.errors,
+        });
+
         if (result.valid && result.rfqPlan.length > 0) {
           await procService.createRfqEmails(data.id, result.rfqPlan);
 
-          // Build RFQ payloads for email service
           const payloads = buildRfqPayloads({ pr, rfqPlan: result.rfqPlan, lineItems, vendors });
           await procService.storeRfqPayloads(data.id, payloads);
 
-          logger.info("decision engine: RFQ payloads ready", {
-            prId: data.id,
-            rfqCount: payloads.length,
-            totalValue: payloads.reduce((s, p) => s + p.metadata.totalEstimatedValue, 0),
-            warnings: result.warnings,
+          debugLog.add(data.id, "email_send_request", {
+            count: payloads.length,
+            mock: emailClient.isMock,
+            vendors: payloads.map(p => p.vendor.name + " <" + p.vendor.email + ">"),
           });
 
-          // TODO: publish to Google Pub/Sub when email service is ready
-          // for (const payload of payloads) {
-          //   await pubsub.publish("procurement.rfq.send", payload);
-          // }
+          const sendResults = await emailClient.sendBatch(payloads);
+          const sent = sendResults.filter(r => r.ok).length;
+          const failed = sendResults.filter(r => !r.ok).length;
+
+          debugLog.add(data.id, "email_send_response", {
+            sent, failed, results: sendResults,
+          });
+
+          logger.info("decision engine: RFQ payloads dispatched", {
+            prId: data.id, total: payloads.length, sent, failed, mock: emailClient.isMock,
+          });
         } else {
+          debugLog.add(data.id, "decision_engine_failed", {
+            errors: result.errors, warnings: result.warnings,
+          });
           logger.warn("decision engine: shortlist validation failed", {
-            prId: data.id,
-            errors: result.errors,
-            warnings: result.warnings,
+            prId: data.id, errors: result.errors, warnings: result.warnings,
           });
         }
       } catch (err) {

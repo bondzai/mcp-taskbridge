@@ -1,5 +1,4 @@
 export const PrStatus = Object.freeze({
-  DRAFT: "draft",
   PENDING_APPROVAL: "pending_approval",
   PENDING: "pending",
   PROCESSING: "processing",

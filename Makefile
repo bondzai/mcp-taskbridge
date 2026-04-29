@@ -96,6 +96,12 @@ test-watch: ## Re-run tests on file change (requires: brew install entr)
 web: ## Start the web server in foreground on $(PORT_WEB)
 	$(NPM) run start:web
 
+.PHONY: dev
+dev: ## Start the web server with .env.local loaded (use this for local smoke tests)
+	@test -f .env.local || { echo "✗ .env.local not found. Create it with OPENAI_API_KEY=... PROCUREMENT_ENABLED=true"; exit 1; }
+	@echo "Loading .env.local → starting web on :$(PORT_WEB)"
+	@set -a; . ./.env.local; set +a; $(NPM) run start:web
+
 .PHONY: mcp
 mcp: ## Start the stdio MCP server (normally launched by Claude, not manually)
 	$(NPM) run start:mcp
@@ -136,6 +142,12 @@ smoke: ## Probe the web server (requires: make web running)
 	@curl -sSf -o /dev/null http://127.0.0.1:$(PORT_WEB)/api/changelog
 	@curl -sSf -o /dev/null http://127.0.0.1:$(PORT_WEB)/api/health
 	@echo "✓ web responding on :$(PORT_WEB) (tasks, config, changelog, health)"
+
+.PHONY: smoke-procurement
+smoke-procurement: ## Probe procurement endpoints (export, list, etc.)
+	@curl -sSf -o /dev/null http://127.0.0.1:$(PORT_WEB)/api/procurement/prs
+	@curl -sSf -o /dev/null http://127.0.0.1:$(PORT_WEB)/api/procurement/prs/export
+	@echo "✓ procurement endpoints responding"
 
 .PHONY: smoke-mcp
 smoke-mcp: ## Probe the supergateway /mcp endpoint (requires: make supergateway running)

@@ -9,7 +9,6 @@ import { createListControls } from "./list-controls.js";
 /* ---------- Procurement status groups (simplified phases) ---------- */
 
 const PHASE = {
-  draft:      { label: "Draft",      icon: "bi-pencil",              color: "secondary" },
   approval:   { label: "Approval",   icon: "bi-hourglass-split",     color: "warning" },
   pending:    { label: "Pending",    icon: "bi-clock",               color: "info" },
   processing: { label: "Processing", icon: "bi-arrow-repeat",        color: "primary" },
@@ -17,7 +16,6 @@ const PHASE = {
 };
 
 const STATUS_TO_PHASE = {
-  draft:              "draft",
   pending_approval:   "approval",
   pending:            "pending",
   processing:         "processing",
@@ -27,7 +25,6 @@ const STATUS_TO_PHASE = {
 };
 
 const STATUS_ICON = {
-  draft: "bi-pencil",
   pending_approval: "bi-hourglass-split",
   pending: "bi-clock",
   processing: "bi-arrow-repeat",
@@ -36,7 +33,7 @@ const STATUS_ICON = {
   cancelled: "bi-slash-circle",
 };
 
-const phaseOf = (status) => STATUS_TO_PHASE[status] || "draft";
+const phaseOf = (status) => STATUS_TO_PHASE[status] || "approval";
 const statusLabel = (s) => (s || "").replace(/_/g, " ");
 
 /* ---------- State ---------- */
@@ -138,7 +135,7 @@ const paged = () => {
 /* ---------- Stats (clickable phase cards) ---------- */
 
 const phaseCounts = () => {
-  const counts = { draft: 0, approval: 0, pending: 0, processing: 0, done: 0 };
+  const counts = { approval: 0, pending: 0, processing: 0, done: 0 };
   for (const pr of state.prs) {
     const phase = phaseOf(pr.status);
     if (phase in counts) counts[phase]++;
@@ -150,7 +147,7 @@ const renderStats = () => {
   const el = document.getElementById("pr-stats");
   if (!el) return;
   const counts = phaseCounts();
-  const visible = ["draft", "approval", "pending", "processing", "done"];
+  const visible = ["approval", "pending", "processing", "done"];
 
   el.innerHTML = toString(html`
     ${visible.map((key) => html`
@@ -174,7 +171,7 @@ const renderStats = () => {
 /* ---------- List controls ---------- */
 
 const ALL_STATUSES = [
-  "all", "draft", "pending_approval", "pending",
+  "all", "pending_approval", "pending",
   "processing", "failed", "completed", "cancelled",
 ];
 
@@ -264,7 +261,7 @@ const prCard = (pr) => {
   const more = items.length > 3 ? ` +${items.length - 3} more` : "";
 
   return html`
-    <div class="tb-pr-card" data-pr-id="${pr.id}" data-action="navigate" data-href="/procurement-detail.html?id=${pr.id}" role="link" tabindex="0">
+    <div class="tb-pr-card" data-pr-id="${pr.id}" data-pr-status="${pr.status}" data-action="navigate" data-href="/procurement-detail.html?id=${pr.id}" role="link" tabindex="0">
       <div class="tb-pr-card-header">
         ${statusPill(pr.status)}
         <span class="tb-pr-card-title">${pr.title || "Untitled"}</span>
@@ -278,16 +275,22 @@ const prCard = (pr) => {
       ${itemStatusSummary(items)}
       ${preview ? html`<div class="tb-pr-card-items"><i class="bi bi-chevron-right me-1"></i>${preview}${more}</div>` : ""}
       ${itemProgress(items)}
-      ${pr.status === "pending_approval" ? html`
-        <div class="tb-pr-card-actions">
+      <div class="tb-pr-card-actions">
+        ${pr.status === "pending_approval" ? html`
           <button type="button" class="btn btn-success btn-sm" data-action="approve" data-id="${pr.id}">
             <i class="bi bi-check-lg me-1"></i>Approve
           </button>
           <button type="button" class="btn btn-outline-danger btn-sm" data-action="reject" data-id="${pr.id}">
             <i class="bi bi-x-lg me-1"></i>Reject
           </button>
-        </div>
-      ` : ""}
+          <button type="button" class="btn btn-outline-secondary btn-sm" data-action="edit" data-id="${pr.id}">
+            <i class="bi bi-pencil me-1"></i>Edit
+          </button>
+        ` : ""}
+        <button type="button" class="btn btn-outline-danger btn-sm" data-action="delete" data-id="${pr.id}" title="Delete this PR">
+          <i class="bi bi-trash me-1"></i>Delete
+        </button>
+      </div>
     </div>
   `;
 };
@@ -356,6 +359,16 @@ const handleAction = async (action, id) => {
       if (!confirm("Cancel this purchase request?")) return;
       await api(`/api/procurement/prs/${id}/cancel`, { method: "POST" });
       toast("PR cancelled");
+    } else if (action === "edit") {
+      window.location.href = `/procurement-detail.html?id=${id}&edit=1`;
+      return;
+    } else if (action === "delete") {
+      if (!confirm("Delete this purchase request? This cannot be undone.")) return;
+      await api(`/api/procurement/prs/${id}`, { method: "DELETE" });
+      toast("PR deleted");
+      state.prs = state.prs.filter((p) => p.id !== id);
+      render();
+      return;
     } else return;
     await loadPrs();
   } catch (err) {
@@ -383,24 +396,124 @@ const bindEvents = () => {
   });
 };
 
+const flashCardUpdate = (prId) => {
+  const card = document.querySelector(`[data-pr-id="${prId}"]`);
+  if (!card) return;
+  card.classList.add("tb-pr-card-pulse");
+  setTimeout(() => card.classList.remove("tb-pr-card-pulse"), 1500);
+};
+
 const bindSse = () => {
   const es = new EventSource("/api/events");
   const events = [
-    "pr.created", "pr.updated", "pr.approved", "pr.rejected",
+    "pr.created", "pr.updated", "pr.approved",
     "pr.submitted", "pr.cancelled", "pr.completed",
-    "pr.processing", "pr.review", "pr.failed",
-    "item.status_changed",
+    "pr.processing", "pr.failed", "pr.sourcing_started",
+    "pr.item.status_changed",
   ];
+
+  const refreshPr = async (prId, flash = true) => {
+    try {
+      const res = await fetch(`/api/procurement/prs/${prId}`);
+      if (!res.ok) return;
+      const fresh = await res.json();
+      const idx = state.prs.findIndex((p) => p.id === prId);
+      if (idx >= 0) state.prs[idx] = fresh;
+      else state.prs.unshift(fresh);
+      render();
+      if (flash) flashCardUpdate(prId);
+    } catch {}
+  };
+
   for (const ev of events) {
     es.addEventListener(ev, (e) => {
       try {
         const data = JSON.parse(e.data);
-        const idx = state.prs.findIndex((p) => p.id === data.id);
-        if (idx >= 0) state.prs[idx] = { ...state.prs[idx], ...data };
-        else state.prs.unshift(data);
-        render();
+        const prId = data.prId || data.id;
+        if (!prId) return;
+        // For item events we need to re-fetch to get the updated item statuses
+        refreshPr(prId, true);
       } catch {}
     });
+  }
+
+  es.addEventListener("error", () => {
+    // EventSource auto-reconnects; nothing to do
+  });
+};
+
+/* ---------- Export / Import / From File ---------- */
+
+const downloadJson = (data, filename) => {
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click();
+  a.remove(); URL.revokeObjectURL(url);
+};
+
+const exportAll = async () => {
+  try {
+    const data = await api("/api/procurement/prs/export");
+    downloadJson(data, `prs-${new Date().toISOString().slice(0, 10)}.json`);
+    toast(`Exported ${data.purchaseRequests?.length || 0} PR(s)`);
+  } catch (err) {
+    toast(err.message || "Export failed");
+  }
+};
+
+const importJson = async (file) => {
+  try {
+    const text = await file.text();
+    const payload = JSON.parse(text);
+    const result = await api("/api/procurement/prs/import", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+    toast(`Imported ${result.imported} PR(s)`);
+    await loadPrs();
+  } catch (err) {
+    toast(err.message || "Import failed — invalid JSON?");
+  }
+};
+
+const createFromFile = async (file) => {
+  try {
+    toast("Extracting…");
+    const fd = new FormData();
+    fd.append("file", file);
+    const res = await fetch("/api/procurement/prs/from-file", { method: "POST", body: fd });
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
+    const ex = body.extracted;
+
+    // Open the inline form and pre-fill it for review.
+    document.getElementById("pr-new-form").style.display = "block";
+    document.getElementById("pr-title").value = ex.title || "";
+    if (ex.deadline) {
+      const d = new Date(ex.deadline);
+      document.getElementById("pr-deadline").value = d.toISOString().slice(0, 10);
+    }
+    document.getElementById("pr-notes").value = ex.notes || "";
+
+    // Reset and repopulate items
+    const container = document.getElementById("pr-items-container");
+    if (container) container.innerHTML = "";
+    itemCounter = 0;
+    for (const item of (ex.lineItems || [])) {
+      addItemRow();
+      const last = container.querySelector("[data-item-row]:last-child");
+      if (!last) continue;
+      last.querySelector("[data-field='materialName']").value = item.materialName || "";
+      last.querySelector("[data-field='specification']").value = item.specification || "";
+      last.querySelector("[data-field='quantity']").value = item.quantity || "";
+      last.querySelector("[data-field='unit']").value = item.unit || "";
+    }
+    if ((ex.lineItems || []).length === 0) addItemRow();
+    toast(`Extracted by ${body.provider} (${body.model}) — review and submit`);
+  } catch (err) {
+    toast(err.message || "Extraction failed");
   }
 };
 
@@ -449,7 +562,7 @@ const resetForm = () => {
   addItemRow();
 };
 
-const submitPr = async (asDraft) => {
+const submitPr = async () => {
   const title = document.getElementById("pr-title")?.value?.trim();
   if (!title) { toast("Title is required"); return; }
   const lineItems = getFormItems();
@@ -464,13 +577,8 @@ const submitPr = async (asDraft) => {
   };
 
   try {
-    const pr = await api("/api/procurement/prs", { method: "POST", body: JSON.stringify(body) });
-    if (!asDraft) {
-      await api(`/api/procurement/prs/${pr.id}/submit`, { method: "POST" });
-      toast("PR submitted for approval");
-    } else {
-      toast("PR saved as draft");
-    }
+    await api("/api/procurement/prs", { method: "POST", body: JSON.stringify(body) });
+    toast("PR submitted for approval");
     resetForm();
     document.getElementById("pr-new-form").style.display = "none";
     await loadPrs();
@@ -484,7 +592,6 @@ const bindInlineForm = () => {
   const closeBtn = document.getElementById("btn-close-new-pr");
   const formSection = document.getElementById("pr-new-form");
   const addItemBtn = document.getElementById("btn-add-item");
-  const saveDraftBtn = document.getElementById("btn-save-draft");
   const form = document.getElementById("pr-form");
   const itemsContainer = document.getElementById("pr-items-container");
 
@@ -505,8 +612,7 @@ const bindInlineForm = () => {
       if (btn) btn.closest("[data-item-row]")?.remove();
     });
   }
-  if (saveDraftBtn) saveDraftBtn.addEventListener("click", () => submitPr(true));
-  if (form) form.addEventListener("submit", (e) => { e.preventDefault(); submitPr(false); });
+  if (form) form.addEventListener("submit", (e) => { e.preventDefault(); submitPr(); });
 };
 
 /* ---------- Boot ---------- */
@@ -525,6 +631,25 @@ const boot = () => {
   bindEvents();
   bindSse();
   bindInlineForm();
+
+  document.getElementById("btn-export-prs")?.addEventListener("click", exportAll);
+  document.getElementById("btn-import-pr")?.addEventListener("click", () => {
+    document.getElementById("pr-import-input")?.click();
+  });
+  document.getElementById("pr-import-input")?.addEventListener("change", (e) => {
+    const f = e.target.files?.[0];
+    if (f) importJson(f);
+    e.target.value = "";
+  });
+  document.getElementById("btn-from-file")?.addEventListener("click", () => {
+    document.getElementById("pr-from-file-input")?.click();
+  });
+  document.getElementById("pr-from-file-input")?.addEventListener("change", (e) => {
+    const f = e.target.files?.[0];
+    if (f) createFromFile(f);
+    e.target.value = "";
+  });
+
   render();
   loadPrs();
 

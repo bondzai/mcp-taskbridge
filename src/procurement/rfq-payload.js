@@ -32,7 +32,8 @@ export const buildRfqPayloads = ({ pr, rfqPlan, lineItems, vendors }) => {
     );
 
     return {
-      rfqId: randomUUID(),
+      rfxId: randomUUID(),
+      rfxType: "RFQ",
       prId: pr.id,
       prTitle: pr.title,
       requestedBy: pr.requestedBy || null,

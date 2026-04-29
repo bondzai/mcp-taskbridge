@@ -129,14 +129,9 @@ const validateForm = (requireItems = true) => {
 
 /* ---------- Submit ---------- */
 
-const submitPr = async (asDraft) => {
+const submitPr = async () => {
   syncItemState();
-
-  if (!asDraft && !validateForm(true)) return;
-  if (asDraft && !document.getElementById("pr-title")?.value?.trim()) {
-    toast("A title is required even for drafts");
-    return;
-  }
+  if (!validateForm(true)) return;
 
   const title = document.getElementById("pr-title").value.trim();
   const deadline = document.getElementById("pr-deadline")?.value || null;
@@ -164,7 +159,7 @@ const submitPr = async (asDraft) => {
       if (deadline) fd.append("deadline", deadline);
       if (notes) fd.append("notes", notes);
       fd.append("items", JSON.stringify(items));
-      fd.append("status", asDraft ? "draft" : "pending_approval");
+      fd.append("status", "pending_approval");
       for (const f of files) fd.append("files", f);
 
       const res = await fetch("/api/procurement/prs", { method: "POST", body: fd });
@@ -180,12 +175,12 @@ const submitPr = async (asDraft) => {
           deadline,
           notes,
           items,
-          status: asDraft ? "draft" : "pending_approval",
+          status: "pending_approval",
         }),
       });
     }
 
-    toast(asDraft ? "Draft saved" : "PR submitted for approval");
+    toast("PR submitted for approval");
 
     // If we got an id, redirect to detail page; otherwise go to list.
     const newId = result?.id || result?.pr?.id;
@@ -238,21 +233,12 @@ const bindEvents = () => {
     });
   }
 
-  // Save as draft
-  const draftBtn = document.getElementById("pr-save-draft");
-  if (draftBtn) {
-    draftBtn.addEventListener("click", (e) => {
-      e.preventDefault();
-      submitPr(true);
-    });
-  }
-
   // Submit for approval
   const form = document.getElementById("pr-form");
   if (form) {
     form.addEventListener("submit", (e) => {
       e.preventDefault();
-      submitPr(false);
+      submitPr();
     });
   }
 };
