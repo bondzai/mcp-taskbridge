@@ -171,6 +171,8 @@ export const procurementToolDefinitions = (handlers) => [
           lineItemId: z.number().int().optional().describe("Line item id (omit to cover all items)"),
           referencePrice: z.number().optional().describe("Expected unit price"),
           notes: z.string().optional().describe("Notes about this vendor for this item"),
+          rfxTypes: z.array(z.enum(["RFI", "RFQ", "RFP"])).optional()
+            .describe("RFx types to send to this vendor (e.g. ['RFI','RFQ']). Defaults to ['RFQ'] if omitted."),
         })).min(1).describe("Array of vendor-to-item mappings"),
       },
     },

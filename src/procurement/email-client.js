@@ -27,7 +27,7 @@ export const createEmailClient = ({ url, apiKey, logger }) => {
 
       if (isMock) {
         logger?.info?.("email-client [MOCK]: would send", summary);
-        return { ok: true, mock: true, rfxId: id };
+        return { ok: true, mock: true, rfxId: id, statusCode: null, response: null, requestSummary: summary };
       }
 
       const res = await fetch(url, {
@@ -42,15 +42,17 @@ export const createEmailClient = ({ url, apiKey, logger }) => {
       const body = await res.json().catch(() => ({}));
 
       if (!res.ok) {
-        const err = new Error(body.error || `Email service returned ${res.status}`);
-        err.status = res.status;
-        err.body = body;
         logger?.error?.("email-client: send failed", { ...summary, status: res.status, error: body.error });
-        throw err;
+        return {
+          ok: false, mock: false, rfxId: id,
+          statusCode: res.status, response: body,
+          error: body.error || `Email service returned ${res.status}`,
+          requestSummary: summary,
+        };
       }
 
       logger?.info?.("email-client: sent", { ...summary, status: res.status });
-      return { ok: true, mock: false, rfxId: id, response: body };
+      return { ok: true, mock: false, rfxId: id, statusCode: res.status, response: body, requestSummary: summary };
     },
 
     async sendBatch(payloads) {
@@ -58,9 +60,18 @@ export const createEmailClient = ({ url, apiKey, logger }) => {
       for (const payload of payloads) {
         try {
           const result = await this.sendRfx(payload);
-          results.push(result);
+          results.push({ ...result, payload });
         } catch (err) {
-          results.push({ ok: false, rfxId: payload.rfxId || payload.rfqId, error: err.message });
+          results.push({
+            ok: false,
+            mock: false,
+            rfxId: payload.rfxId || payload.rfqId,
+            statusCode: null,
+            response: null,
+            error: err.message,
+            requestSummary: { vendor: payload.vendor?.name, email: payload.vendor?.email, items: payload.items?.length },
+            payload,
+          });
         }
       }
       return results;

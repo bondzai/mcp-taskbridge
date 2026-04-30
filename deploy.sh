@@ -33,11 +33,11 @@ gcloud run deploy "$SERVICE" \
   --region "$REGION" \
   --allow-unauthenticated \
   --set-env-vars "$ENV_VARS" \
-  --min-instances 1 \
-  --max-instances 3 \
+  --min-instances 0 \
+  --max-instances 1 \
   --memory 512Mi \
   --cpu 1 \
   --timeout 3600 \
   --cpu-boost \
-  --session-affinity \
-  --no-cpu-throttling
+  --cpu-throttling \
+  --no-session-affinity

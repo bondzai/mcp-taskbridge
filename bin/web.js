@@ -20,6 +20,8 @@ import {
   createVendorResponsesRepository,
   createStatusLogRepository,
   createItemStatusLogRepository,
+  createRfxEventLogRepository,
+  createRfxSendLogRepository,
 } from "../src/procurement/repo.js";
 import { createProcurementService } from "../src/procurement/service.js";
 import { createProcurementToolHandlers, procurementToolDefinitions } from "../src/procurement/tools.js";
@@ -31,6 +33,8 @@ import { createEmailClient } from "../src/procurement/email-client.js";
 import { debugLog } from "../src/procurement/debug-log.js";
 import { createAuthMiddleware } from "../src/auth/middleware.js";
 import { createAuthRoutes } from "../src/auth/routes.js";
+import { createCurrencyProvider } from "../src/currency/provider.js";
+import { createCurrencyCache } from "../src/currency/cache.js";
 
 const readPackageVersion = () => {
   try {
@@ -78,6 +82,8 @@ const main = async () => {
       vendorResponses: createVendorResponsesRepository(db),
       statusLog: createStatusLogRepository(db),
       itemStatusLog: createItemStatusLogRepository(db),
+      rfxEventLog: createRfxEventLogRepository(db),
+      rfxSendLog: createRfxSendLogRepository(db),
     };
 
     const procService = createProcurementService({
@@ -99,7 +105,11 @@ const main = async () => {
 
     const procHandlers = createProcurementToolHandlers({ service: procService });
     extraTools = procurementToolDefinitions(procHandlers);
-    procurementRoutes = createProcurementRoutes({ service: procService });
+    procurementRoutes = createProcurementRoutes({
+      service: procService,
+      rfxWebhookSecret: process.env.RFX_WEBHOOK_SECRET || null,
+      logger,
+    });
 
     // Wire event: on task.claimed → transition PR to processing
     events.subscribe(async (event, data) => {
@@ -139,9 +149,9 @@ const main = async () => {
         });
 
         if (result.valid && result.rfqPlan.length > 0) {
-          await procService.createRfqEmails(data.id, result.rfqPlan);
+          const rfqEmails = await procService.createRfqEmails(data.id, result.rfqPlan);
 
-          const payloads = buildRfqPayloads({ pr, rfqPlan: result.rfqPlan, lineItems, vendors });
+          const payloads = buildRfqPayloads({ pr, rfqPlan: result.rfqPlan, rfqEmails, lineItems, vendors });
           await procService.storeRfqPayloads(data.id, payloads);
 
           debugLog.add(data.id, "email_send_request", {
@@ -154,8 +164,30 @@ const main = async () => {
           const sent = sendResults.filter(r => r.ok).length;
           const failed = sendResults.filter(r => !r.ok).length;
 
+          // Persist each mail-service response for debug introspection.
+          // Strip the full payload off before logging — we keep only request_summary.
+          for (const r of sendResults) {
+            try {
+              const p = r.payload || {};
+              await procRepos.rfxSendLog.insert({
+                rfxId: r.rfxId,
+                prId: data.id,
+                vendorId: p.vendor?.id ?? null,
+                ok: r.ok,
+                mock: !!r.mock,
+                statusCode: r.statusCode ?? null,
+                responseBody: r.response ?? null,
+                error: r.error ?? null,
+                requestSummary: r.requestSummary ?? null,
+              });
+            } catch (e) {
+              logger.warn("rfx_send_log persist failed", { rfxId: r.rfxId, error: e.message });
+            }
+          }
+
           debugLog.add(data.id, "email_send_response", {
-            sent, failed, results: sendResults,
+            sent, failed,
+            results: sendResults.map(({ payload, ...rest }) => rest),
           });
 
           logger.info("decision engine: RFQ payloads dispatched", {
@@ -189,11 +221,22 @@ const main = async () => {
   const authMiddleware = createAuthMiddleware();
   const authRoutes = createAuthRoutes();
 
+  // Currency cache (in-process, TTL 1h, stale-while-revalidate, fallback floor)
+  let currencyCache = null;
+  try {
+    const provider = await createCurrencyProvider();
+    currencyCache = createCurrencyCache({ provider, logger });
+    logger.info("currency: provider configured", { provider: provider.name });
+  } catch (err) {
+    logger.warn("currency: provider init failed — falling back to baked-in rates", { error: err.message });
+  }
+
   const { app } = createApp({
     service,
     webhookSecret: config.webhookSecret,
     events,
     repo,
+    currencyCache,
     projectRoot: config.projectRoot,
     externalChecks: DEFAULT_CHECKS,
     mcpHandler,
@@ -206,6 +249,8 @@ const main = async () => {
       webHost: config.webHost,
       webPort: config.webPort,
       version,
+      rfxExternalBaseUrl: process.env.RFX_EXTERNAL_BASE_URL || "https://freeform-agents.web.app/rfx",
+      llmConfigured: Boolean(process.env.OPENAI_API_KEY),
     },
   });
 

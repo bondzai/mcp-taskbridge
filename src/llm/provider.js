@@ -3,12 +3,12 @@
  * Switch implementations via env: LLM_PROVIDER=openai|anthropic|...
  *
  * Contract:
- *   extractPrFromDocument(text, { filename }) → {
- *     title:       string,
- *     deadline:    number | null,   // ms epoch
- *     notes:       string | null,
- *     lineItems:   Array<{ materialName, specification, quantity, unit, notes }>,
- *   }
+ *   extractPrFromDocument(text, { filename }) → PR        (single, parsed from a file)
+ *   generatePrs({ count, industryHint })       → PR[]      (synthetic mock data)
+ *
+ * PR shape:
+ *   { title, deadline (ms epoch | null), notes, lineItems[] }
+ *   lineItems[i] = { materialName, specification, quantity, unit, notes? }
  */
 
 export const createLlmProvider = (env = process.env) => {

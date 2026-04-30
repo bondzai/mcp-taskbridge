@@ -75,6 +75,10 @@ const rowToLineItem = (row) => {
 
 const rowToShortlistEntry = (row) => {
   if (!row) return null;
+  let rfxTypes = [];
+  if (row.rfx_types) {
+    try { const v = JSON.parse(row.rfx_types); if (Array.isArray(v)) rfxTypes = v; } catch {}
+  }
   return {
     id: row.id,
     prId: row.pr_id,
@@ -82,6 +86,7 @@ const rowToShortlistEntry = (row) => {
     lineItemId: row.line_item_id ?? null,
     referencePrice: row.reference_price ?? null,
     notes: row.notes ?? null,
+    rfxTypes,
     createdAt: row.created_at,
   };
 };
@@ -604,21 +609,32 @@ export const createPurchaseRequestsRepository = (db) => {
     async insertShortlist(prId, entries) {
       const ts = now();
       return db.transaction(async (tx) => {
-        await tx.execute(
-          `DELETE FROM pr_vendor_shortlist WHERE pr_id = @prId`,
+        // Append, don't replace — the agent may submit the shortlist in
+        // multiple calls (e.g. one per item). De-dupe by (vendor, line_item).
+        const existing = await tx.query(
+          `SELECT vendor_id, line_item_id FROM pr_vendor_shortlist WHERE pr_id = @prId`,
           { prId }
+        );
+        const seen = new Set(
+          existing.map((r) => `${r.vendor_id}::${r.line_item_id ?? ""}`)
         );
         const out = [];
         for (const e of entries) {
+          const dedupeKey = `${e.vendorId}::${e.lineItemId ?? ""}`;
+          if (seen.has(dedupeKey)) continue;   // skip duplicate
+          seen.add(dedupeKey);
+
+          const rfxTypes = Array.isArray(e.rfxTypes) ? e.rfxTypes : [];
           const info = await tx.execute(
-            `INSERT INTO pr_vendor_shortlist (pr_id, vendor_id, line_item_id, reference_price, notes, created_at)
-            VALUES (@prId, @vendorId, @lineItemId, @referencePrice, @notes, @now)`,
+            `INSERT INTO pr_vendor_shortlist (pr_id, vendor_id, line_item_id, reference_price, notes, rfx_types, created_at)
+            VALUES (@prId, @vendorId, @lineItemId, @referencePrice, @notes, @rfxTypes, @now)`,
             {
               prId,
               vendorId: e.vendorId,
               lineItemId: e.lineItemId ?? null,
               referencePrice: e.referencePrice ?? null,
               notes: e.notes ?? null,
+              rfxTypes: rfxTypes.length > 0 ? JSON.stringify(rfxTypes) : null,
               now: ts,
             }
           );
@@ -629,6 +645,7 @@ export const createPurchaseRequestsRepository = (db) => {
             lineItemId: e.lineItemId ?? null,
             referencePrice: e.referencePrice ?? null,
             notes: e.notes ?? null,
+            rfxTypes,
             createdAt: ts,
           });
         }
@@ -637,10 +654,21 @@ export const createPurchaseRequestsRepository = (db) => {
     },
     async getShortlist(prId) {
       const rows = await db.query(
-        `SELECT * FROM pr_vendor_shortlist WHERE pr_id = @prId ORDER BY id ASC`,
+        `SELECT s.*, v.name AS vendor_name, v.email AS vendor_email,
+                v.lead_time_days AS vendor_lead_time, v.currency AS vendor_currency
+         FROM pr_vendor_shortlist s
+         LEFT JOIN vendors v ON v.id = s.vendor_id
+         WHERE s.pr_id = @prId
+         ORDER BY s.id ASC`,
         { prId }
       );
-      return rows.map(rowToShortlistEntry);
+      return rows.map((row) => ({
+        ...rowToShortlistEntry(row),
+        vendorName: row.vendor_name ?? null,
+        vendorEmail: row.vendor_email ?? null,
+        vendorLeadTimeDays: row.vendor_lead_time ?? null,
+        vendorCurrency: row.vendor_currency ?? null,
+      }));
     },
 
     async getLineItem(prId, itemId) {
@@ -1000,6 +1028,127 @@ export const createItemStatusLogRepository = (db) => {
         { prId }
       );
       return rows.map(rowToItemStatusLog);
+    },
+  };
+};
+
+/* ═══════════════════════════════════════════════════════
+   RFx Event Log Repository — events the mail service pushes
+   ═══════════════════════════════════════════════════════ */
+
+const rowToRfxEvent = (row) => {
+  if (!row) return null;
+  return {
+    id: row.id,
+    rfxId: row.rfx_id,
+    prId: row.pr_id ?? null,
+    vendorId: row.vendor_id ?? null,
+    event: row.event,
+    detail: row.detail ? safeParseJson(row.detail) : null,
+    occurredAt: Number(row.occurred_at),
+    receivedAt: Number(row.received_at),
+  };
+};
+
+const safeParseJson = (s) => {
+  try { return JSON.parse(s); } catch { return null; }
+};
+
+/* ═══════════════════════════════════════════════════════
+   RFx Send Log Repository — TEMP debug — clean later
+   Captures the raw mail-service response for every send.
+   ═══════════════════════════════════════════════════════ */
+
+const rowToRfxSend = (row) => {
+  if (!row) return null;
+  return {
+    id: row.id,
+    rfxId: row.rfx_id,
+    prId: row.pr_id ?? null,
+    vendorId: row.vendor_id ?? null,
+    ok: row.ok === 1 || row.ok === true,
+    mock: row.mock === 1 || row.mock === true,
+    statusCode: row.status_code ?? null,
+    responseBody: row.response_body ? safeParseJson(row.response_body) : null,
+    error: row.error ?? null,
+    requestSummary: row.request_summary ? safeParseJson(row.request_summary) : null,
+    createdAt: Number(row.created_at),
+  };
+};
+
+export const createRfxSendLogRepository = (db) => {
+  const now = () => Date.now();
+  return {
+    async insert({ rfxId, prId, vendorId, ok, mock, statusCode, responseBody, error, requestSummary }) {
+      await db.execute(
+        `INSERT INTO rfx_send_log
+           (rfx_id, pr_id, vendor_id, ok, mock, status_code, response_body, error, request_summary, created_at)
+         VALUES (@rfxId, @prId, @vendorId, @ok, @mock, @statusCode, @responseBody, @error, @requestSummary, @now)`,
+        {
+          rfxId,
+          prId: prId ?? null,
+          vendorId: vendorId ?? null,
+          ok: ok ? 1 : 0,
+          mock: mock ? 1 : 0,
+          statusCode: statusCode ?? null,
+          responseBody: responseBody != null ? JSON.stringify(responseBody) : null,
+          error: error ?? null,
+          requestSummary: requestSummary != null ? JSON.stringify(requestSummary) : null,
+          now: now(),
+        }
+      );
+    },
+    async listByPr(prId, limit = 100) {
+      const rows = await db.query(
+        `SELECT * FROM rfx_send_log WHERE pr_id = @prId ORDER BY created_at DESC, id DESC LIMIT @limit`,
+        { prId, limit }
+      );
+      return rows.map(rowToRfxSend);
+    },
+    async listByRfx(rfxId) {
+      const rows = await db.query(
+        `SELECT * FROM rfx_send_log WHERE rfx_id = @rfxId ORDER BY created_at ASC, id ASC`,
+        { rfxId }
+      );
+      return rows.map(rowToRfxSend);
+    },
+  };
+};
+
+export const createRfxEventLogRepository = (db) => {
+  const now = () => Date.now();
+
+  return {
+    async insert({ rfxId, prId, vendorId, event, detail, occurredAt }) {
+      try {
+        const info = await db.execute(
+          `INSERT INTO rfx_event_log (rfx_id, pr_id, vendor_id, event, detail, occurred_at, received_at)
+           VALUES (@rfxId, @prId, @vendorId, @event, @detail, @occurredAt, @receivedAt)`,
+          {
+            rfxId,
+            prId: prId ?? null,
+            vendorId: vendorId ?? null,
+            event,
+            detail: detail != null ? JSON.stringify(detail) : null,
+            occurredAt,
+            receivedAt: now(),
+          }
+        );
+        return { inserted: true, id: Number(info.lastId) };
+      } catch (err) {
+        // Idempotent: duplicate (rfx_id,event,occurred_at) is fine
+        if (/UNIQUE/i.test(err?.message || "") || err?.code === "SQLITE_CONSTRAINT_UNIQUE" || err?.code === "23505") {
+          return { inserted: false, duplicate: true };
+        }
+        throw err;
+      }
+    },
+    async listByRfx(rfxId) {
+      const rows = await db.query(
+        `SELECT * FROM rfx_event_log WHERE rfx_id = @rfxId ORDER BY occurred_at ASC, id ASC`,
+        { rfxId }
+      );
+      return rows.map(rowToRfxEvent);
     },
   };
 };

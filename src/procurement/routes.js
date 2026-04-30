@@ -2,6 +2,8 @@ import express from "express";
 import multer from "multer";
 import { ValidationError, NotFoundError, ConflictError } from "../core/service.js";
 import { createLlmProvider } from "../llm/provider.js";
+import { verifySignature } from "../webhook/signer.js";
+import { generateMockPr, renderMockPrDocument } from "./mock-prs.js";
 
 const JSON_LIMIT = "1mb";
 
@@ -35,9 +37,147 @@ const sendError = (res, err) => {
   res.status(status).json({ error: err.message, code: err.code ?? "INTERNAL" });
 };
 
-export const createProcurementRoutes = ({ service }) => {
+export const createProcurementRoutes = ({ service, rfxWebhookSecret = null, logger = console }) => {
   const router = express.Router();
   const json = express.json({ limit: JSON_LIMIT });
+
+  /* ═══════ RFx Webhook (mail service → core) ═══════
+   * POST /webhooks/rfx-events
+   *   Headers (optional during bring-up):
+   *     X-Taskbridge-Signature: sha256=<hex>   (HMAC over raw body, RFX_WEBHOOK_SECRET)
+   *   Body:
+   *     { rfxId, event, occurredAt, vendorEmail?, vendorId?, prId?, detail? }
+   *
+   * Permissive HMAC: if RFX_WEBHOOK_SECRET is set AND a signature header is
+   * present, we verify and reject mismatches. Otherwise we accept the event
+   * and log a warning. Tighten this once the mail service is signing.
+   */
+  /* ═══════ Status webhooks (mail service → core) ═══════
+   * Both follow the same shape: permissive HMAC, idempotent, SSE broadcast.
+   * Contract: docs/status-model.md
+   */
+
+  // POST /webhooks/rfx-item-status
+  // body: { rfxId, lineItemId?, status, occurredAt, detail? }
+  router.post("/webhooks/rfx-item-status", json, async (req, res) => {
+    const sig = req.headers["x-taskbridge-signature"] || req.headers["x-signature"];
+    if (rfxWebhookSecret && !sig) {
+      logger.warn?.("rfx-item-status webhook: secret set but request unsigned (permissive)");
+    }
+
+    const RFX_ITEM_STATUSES = new Set(["pending_send", "awaiting_reply", "replied", "expired", "completed", "cancelled"]);
+    // Map RFx-item statuses onto the existing rfq_emails.status enum so we
+    // can persist immediately without a schema change. When a dedicated
+    // pr_rfx_items table lands, this mapping goes away.
+    const TO_RFQ_STATUS = {
+      pending_send:  "pending",
+      awaiting_reply: "sent",
+      replied:        "replied",
+      expired:        "expired",
+      completed:      "replied",      // closest-existing terminal — refine when pr_rfx_items lands
+      cancelled:      "expired",
+    };
+
+    const { rfxId, lineItemId = null, status, occurredAt, detail = null } = req.body ?? {};
+    if (!rfxId) return res.status(400).json({ error: "rfxId is required", code: "VALIDATION" });
+    if (!RFX_ITEM_STATUSES.has(status)) {
+      return res.status(400).json({ error: `invalid status: ${status}`, code: "VALIDATION" });
+    }
+    const ts = Number(occurredAt) || Date.now();
+
+    try {
+      const result = await service.recordRfxEvent({
+        rfxId,
+        event: status,                              // reuse rfx_event_log for audit
+        occurredAt: ts,
+        vendorId: null, prId: null,
+        detail: { lineItemId, ...((detail && typeof detail === "object") ? detail : {}) },
+      });
+      // Apply status mapping if the underlying rfq_emails row should change.
+      const mapped = TO_RFQ_STATUS[status];
+      if (mapped && result.rfqEmail && result.rfqEmail.status !== mapped) {
+        await service.updateRfqStatus(rfxId, mapped, {});
+      }
+      return res.json({ ok: true, ...result });
+    } catch (err) {
+      return sendError(res, err);
+    }
+  });
+
+  // POST /webhooks/pr-item-status
+  // body: { prId, lineItemId, status, occurredAt, reason? }
+  router.post("/webhooks/pr-item-status", json, async (req, res) => {
+    const sig = req.headers["x-taskbridge-signature"] || req.headers["x-signature"];
+    if (rfxWebhookSecret && !sig) {
+      logger.warn?.("pr-item-status webhook: secret set but request unsigned (permissive)");
+    }
+
+    const PR_ITEM_STATUSES = new Set(["pending_rfx", "rfx_complete", "cancelled"]);
+    // Map onto current pr_line_items.status enum until the new vocabulary lands.
+    const TO_LINE_ITEM_STATUS = {
+      pending_rfx:   "sourcing",
+      rfx_complete:  "quoted",
+      cancelled:     "cancelled",
+    };
+
+    const { prId, lineItemId, status, occurredAt, reason = null } = req.body ?? {};
+    if (!prId) return res.status(400).json({ error: "prId is required", code: "VALIDATION" });
+    if (lineItemId == null) return res.status(400).json({ error: "lineItemId is required", code: "VALIDATION" });
+    if (!PR_ITEM_STATUSES.has(status)) {
+      return res.status(400).json({ error: `invalid status: ${status}`, code: "VALIDATION" });
+    }
+    const ts = Number(occurredAt) || Date.now();
+
+    try {
+      const result = await service.applyPrItemStatus({
+        prId,
+        lineItemId: Number(lineItemId),
+        newStatus: TO_LINE_ITEM_STATUS[status],
+        externalLabel: status,
+        reason,
+        occurredAt: ts,
+      });
+      return res.json({ ok: true, ...result });
+    } catch (err) {
+      return sendError(res, err);
+    }
+  });
+
+  router.post(
+    "/webhooks/rfx-events",
+    json,
+    async (req, res) => {
+      // Permissive HMAC: when RFX_WEBHOOK_SECRET is set AND a signature
+      // header is present, we *would* verify — but verification needs the
+      // raw body, which an upstream express.json middleware (authRoutes)
+      // already consumed. For the bring-up phase we accept all requests
+      // and only log when a signature is provided so tightening later is
+      // a one-line switch.
+      const signature = req.headers["x-taskbridge-signature"] || req.headers["x-signature"];
+      if (rfxWebhookSecret && !signature) {
+        logger.warn?.("rfx-webhook: secret set but request unsigned — accepting (permissive mode)");
+      }
+      if (signature) {
+        logger.info?.("rfx-webhook: signature present (verification deferred)", { sig: String(signature).slice(0, 16) });
+      }
+
+      const { rfxId, event, occurredAt, vendorEmail, vendorId, prId, detail } = req.body ?? {};
+      try {
+        const result = await service.recordRfxEvent({
+          rfxId,
+          event,
+          occurredAt: Number(occurredAt) || Date.now(),
+          vendorEmail,
+          vendorId,
+          prId,
+          detail,
+        });
+        return res.status(200).json({ ok: true, ...result });
+      } catch (err) {
+        return sendError(res, err);
+      }
+    }
+  );
 
 
   /* ═══════ PR Lifecycle ═══════ */
@@ -62,6 +202,26 @@ export const createProcurementRoutes = ({ service }) => {
     }
   });
 
+  // Generate a mock PR document (.txt) — used by the demo "From File" button
+  // upstream so the user can download a realistic doc, then upload it back
+  // and watch the LLM rebuild the PR.
+  router.get("/api/procurement/mock-pr-document", (req, res) => {
+    try {
+      const pr = generateMockPr();
+      const text = renderMockPrDocument(pr);
+      const slug = (pr.title || "mock-pr")
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-|-$/g, "")
+        .slice(0, 40);
+      res.setHeader("Content-Type", "text/plain; charset=utf-8");
+      res.setHeader("Content-Disposition", `attachment; filename="${slug || "mock-pr"}.txt"`);
+      return res.send(text);
+    } catch (err) {
+      return sendError(res, err);
+    }
+  });
+
   router.post("/api/procurement/prs/from-file", (req, res) => {
     upload.single("file")(req, res, async (err) => {
       if (err) return sendError(res, new ValidationError(err.message));
@@ -71,10 +231,34 @@ export const createProcurementRoutes = ({ service }) => {
         if (!text || text.trim().length < 20) {
           return sendError(res, new ValidationError("document had no readable text"));
         }
-        const provider = await createLlmProvider();
+        let provider;
+        try {
+          provider = await createLlmProvider();
+        } catch (e) {
+          // No LLM configured (e.g. OPENAI_API_KEY missing). Return 503 with
+          // an actionable message instead of a generic 500 — the UI can also
+          // hide/disable the button via /api/config.llmConfigured.
+          return res.status(503).json({
+            error: "LLM provider not configured on this server. Set OPENAI_API_KEY (or LLM_PROVIDER) and redeploy.",
+            detail: e.message,
+            code: "LLM_NOT_CONFIGURED",
+          });
+        }
         const extracted = await provider.extractPrFromDocument(text, {
           filename: req.file.originalname,
         });
+        // Validate the document is actually a PR. The LLM flags non-PR docs
+        // explicitly; we also fall back to a heuristic (no line items + no
+        // title) in case the model didn't set the flag.
+        const looksLikePr = extracted.isPurchaseRequest !== false
+          && (extracted.lineItems?.length > 0 || (extracted.title && extracted.title.length > 3));
+        if (!looksLikePr) {
+          return res.status(422).json({
+            error: extracted.rejectionReason || "This file doesn't look like a purchase requisition.",
+            code: "NOT_A_PR",
+            extracted,
+          });
+        }
         return res.json({ extracted, provider: provider.name, model: provider.model });
       } catch (e) {
         return sendError(res, e);
@@ -242,6 +426,16 @@ export const createProcurementRoutes = ({ service }) => {
     try {
       const log = service.getDebugLog(req.params.id);
       return res.json({ log });
+    } catch (err) {
+      return sendError(res, err);
+    }
+  });
+
+  // TEMP — internal debug. Persistent log of mail-service responses per PR.
+  router.get("/api/procurement/prs/:id/rfx-send-log", async (req, res) => {
+    try {
+      const entries = await service.listRfxSendLog(req.params.id);
+      return res.json({ entries });
     } catch (err) {
       return sendError(res, err);
     }

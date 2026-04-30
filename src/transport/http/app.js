@@ -24,6 +24,7 @@ export const createApp = ({
   procurementRoutes = null,
   authMiddleware = null,
   authRoutes = null,
+  currencyCache = null,
 }) => {
   if (!service) throw new Error("service is required");
   if (!webhookSecret) throw new Error("webhookSecret is required");
@@ -61,7 +62,7 @@ export const createApp = ({
 
   app.use(createRoutes({
     service, sse, webhookSecret, publicConfig, projectRoot, repo, health, externalChecks,
-    mcpHandler, mcpHandlerForAdapter,
+    mcpHandler, mcpHandlerForAdapter, currencyCache,
   }));
 
   if (procurementRoutes) {

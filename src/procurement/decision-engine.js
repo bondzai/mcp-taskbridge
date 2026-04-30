@@ -82,19 +82,23 @@ export const evaluateShortlist = ({ shortlist, lineItems, vendors }) => {
     }
   }
 
-  // 4. Vendor merge — group line items by vendor for combined RFQ emails
-  const vendorItems = new Map(); // vendorId → lineItemId[]
+  // 4. Vendor merge — group line items + rfxTypes by vendor for combined RFQ emails
+  const vendorItems = new Map();   // vendorId → Set<lineItemId>
+  const vendorRfxTypes = new Map(); // vendorId → Set<rfxType>
   for (const entry of shortlist) {
     if (!vendorItems.has(entry.vendorId)) {
       vendorItems.set(entry.vendorId, new Set());
+      vendorRfxTypes.set(entry.vendorId, new Set());
     }
     if (entry.lineItemId != null) {
       vendorItems.get(entry.vendorId).add(entry.lineItemId);
     } else {
-      // Covers all items
       for (const li of lineItems) {
         vendorItems.get(entry.vendorId).add(li.id);
       }
+    }
+    if (Array.isArray(entry.rfxTypes)) {
+      for (const t of entry.rfxTypes) vendorRfxTypes.get(entry.vendorId).add(t);
     }
   }
 
@@ -108,6 +112,7 @@ export const evaluateShortlist = ({ shortlist, lineItems, vendors }) => {
       vendorName: vendor.name,
       toEmail: vendor.email,
       lineItemIds: [...itemIds],
+      rfxTypes: [...vendorRfxTypes.get(vendorId)],
     });
   }
 

@@ -35,6 +35,14 @@ const main = async () => {
     await tx.execute(`DELETE FROM purchase_requests`, {});
   });
 
+  // Also drop sourcing tasks so the agent queue is consistent with PR table.
+  // metadata is JSON text; both SQLite and Postgres can do a LIKE match on it.
+  const taskInfo = await db.execute(
+    `DELETE FROM tasks WHERE metadata LIKE @pattern`,
+    { pattern: '%"type":"sourcing"%' }
+  );
+  console.log(`Deleted ${taskInfo.changes ?? 0} orphan sourcing task(s).`);
+
   console.log("Done.");
   await db.close();
 };

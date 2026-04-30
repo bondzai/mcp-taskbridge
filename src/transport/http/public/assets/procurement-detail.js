@@ -4,7 +4,7 @@
    timeline, items, shortlist, RFQ, comparison), handles actions.
    ============================================================ */
 
-import { renderChrome, loadSettings, applyTheme, toast, relativeTime, absoluteTime } from "./chrome.js";
+import { renderChrome, loadSettings, applyTheme, toast, relativeTime, absoluteTime, formatMoney, ensureRates } from "./chrome.js";
 import { html, raw, toString } from "./html.js";
 
 /* ---------- Constants ---------- */
@@ -209,24 +209,40 @@ const renderTimeline = () => {
     return;
   }
 
+  // Newest first for visual scanning
+  const ordered = [...timeline].reverse();
+
   el.innerHTML = toString(html`
     <div class="tb-timeline">
-      ${timeline.map((entry, i) => html`
-        <div class="tb-timeline-item ${i === 0 ? "tb-timeline-item-latest" : ""}">
-          <div class="tb-timeline-dot"></div>
-          <div class="tb-timeline-content">
-            <div class="d-flex align-items-center gap-2">
-              <span class="tb-pill tb-pill-${entry.status || entry.to_status || ""}" style="font-size: 0.72rem;">
-                <i class="bi ${STATUS_ICONS[entry.status || entry.to_status] || "bi-circle"}"></i>
-                ${statusLabel(entry.status || entry.to_status || "")}
-              </span>
-              ${relativeSpan(entry.created_at || entry.timestamp)}
+      ${ordered.map((entry, i) => {
+        const to = entry.toStatus || entry.to_status || entry.status || "";
+        const from = entry.fromStatus || entry.from_status || null;
+        const actor = entry.changedBy || entry.actor || null;
+        const text = entry.reason || entry.note || null;
+        const ts = entry.createdAt || entry.created_at || entry.timestamp;
+        return html`
+          <div class="tb-timeline-item ${i === 0 ? "tb-timeline-item-latest" : ""}">
+            <div class="tb-timeline-dot"></div>
+            <div class="tb-timeline-content">
+              <div class="d-flex align-items-center gap-2 flex-wrap">
+                ${from ? html`
+                  <span class="tb-pill tb-pill-${from}" style="font-size: 0.7rem; opacity: 0.7;">
+                    ${statusLabel(from)}
+                  </span>
+                  <i class="bi bi-arrow-right text-body-secondary"></i>
+                ` : ""}
+                <span class="tb-pill tb-pill-${to}" style="font-size: 0.72rem;">
+                  <i class="bi ${STATUS_ICONS[to] || "bi-circle"}"></i>
+                  ${statusLabel(to)}
+                </span>
+                ${relativeSpan(ts)}
+              </div>
+              ${actor ? html`<div class="small text-body-secondary mt-1"><i class="bi bi-person me-1"></i>${actor}</div>` : ""}
+              ${text ? html`<div class="small mt-1">${text}</div>` : ""}
             </div>
-            ${entry.actor ? html`<div class="small text-body-secondary mt-1"><i class="bi bi-person me-1"></i>${entry.actor}</div>` : ""}
-            ${entry.reason || entry.note ? html`<div class="small mt-1">${entry.reason || entry.note}</div>` : ""}
           </div>
-        </div>
-      `)}
+        `;
+      })}
     </div>
   `);
 };
@@ -245,14 +261,43 @@ const itemActions = (item) => {
   return "";
 };
 
+const formatPrice = (price, currency) => formatMoney(price, currency || "USD");
+
+const vendorChip = (entry, isSelected) => {
+  const name = entry.vendorName || entry.name || "Unknown vendor";
+  const price = formatPrice(entry.referencePrice, entry.vendorCurrency);
+  return html`
+    <span class="tb-vendor-pill ${isSelected ? "tb-vendor-pill-selected" : ""}" title="${entry.vendorEmail || ""}">
+      ${isSelected ? html`<i class="bi bi-check-circle-fill me-1 text-success"></i>` : html`<i class="bi bi-building me-1"></i>`}
+      ${name}${price ? html`<span class="text-body-secondary ms-1">· ${price}</span>` : ""}
+    </span>
+  `;
+};
+
+const itemVendorList = (item) => {
+  const shortlist = (pr?.shortlist || []).filter((s) => s.lineItemId === item.id);
+  if (shortlist.length === 0) {
+    if (item.selectedPrice != null) {
+      // Edge case: status tracked a price but no shortlist entry — show bare price.
+      return html`<div class="tb-item-detail"><span class="text-body-secondary"><i class="bi bi-currency-dollar me-1"></i>${formatPrice(item.selectedPrice)}</span></div>`;
+    }
+    return "";
+  }
+  return html`
+    <div class="tb-item-vendors">
+      ${shortlist.map((s) => vendorChip(s, s.vendorId === item.selectedVendorId))}
+    </div>
+  `;
+};
+
 const itemDetailInfo = (item) => {
   const parts = [];
-  if (item.selectedVendorId) parts.push(html`<span><i class="bi bi-building me-1"></i>Vendor: ${item.selectedVendorId}</span>`);
-  if (item.selectedPrice != null) parts.push(html`<span><i class="bi bi-currency-dollar me-1"></i>${item.selectedPrice}</span>`);
   if (item.poNumber) parts.push(html`<span><i class="bi bi-file-earmark me-1"></i>PO: ${item.poNumber}</span>`);
   if (item.note) parts.push(html`<span><i class="bi bi-chat-left-text me-1"></i>${item.note}</span>`);
-  if (parts.length === 0) return "";
-  return html`<div class="tb-item-detail">${parts}</div>`;
+  return html`
+    ${itemVendorList(item)}
+    ${parts.length > 0 ? html`<div class="tb-item-detail">${parts}</div>` : ""}
+  `;
 };
 
 const renderItems = () => {
@@ -326,29 +371,52 @@ const renderShortlist = () => {
   const show = pr.shortlist && pr.shortlist.length > 0;
   if (!show) { el.innerHTML = toString(html`<div class="small text-body-secondary">No vendors shortlisted yet.</div>`); return; }
 
+  // Group shortlist entries by vendor (multi-line-item entries → one chip per vendor).
+  const seen = new Map();
+  for (const v of pr.shortlist) {
+    const vid = v.vendorId || v.vendor_id || v.id;
+    if (!seen.has(vid)) seen.set(vid, v);
+  }
+  const vendors = [...seen.values()];
+
   el.innerHTML = toString(html`
     <div class="d-flex flex-wrap gap-2">
-      ${pr.shortlist.map((v) => html`
-        <div class="tb-vendor-chip">
-          <i class="bi bi-building me-1"></i>${v.name || v.vendor_name || v.id}
-          ${v.email ? html`<span class="text-body-secondary small ms-1">(${v.email})</span>` : ""}
-        </div>
-      `)}
+      ${vendors.map((v) => {
+        const name = v.vendorName || v.name || v.vendor_name || "Unknown vendor";
+        const email = v.vendorEmail || v.email || null;
+        return html`
+          <div class="tb-vendor-chip" title="${email || ""}">
+            <i class="bi bi-building me-1"></i>${name}
+            ${email ? html`<span class="text-body-secondary small ms-1">${email}</span>` : ""}
+          </div>
+        `;
+      })}
     </div>
   `);
 };
 
-/* ---------- Render: RFQ status ---------- */
+/* ---------- Render: RFx status ---------- */
+
+const RFX_BASE_URL_DEFAULT = "https://freeform-agents.web.app/rfx";
+let rfxBaseUrl = RFX_BASE_URL_DEFAULT;
+
+export const rfxExternalUrl = (rfxId) => `${rfxBaseUrl.replace(/\/+$/, "")}/${rfxId}`;
+
+const vendorNameFromShortlist = (vendorId) => {
+  const entry = (pr?.shortlist || []).find((s) => (s.vendorId || s.vendor_id) === vendorId);
+  return entry?.vendorName || entry?.name || null;
+};
 
 const renderRfqStatus = () => {
   const section = document.getElementById("pr-rfq-section");
   const el = document.getElementById("pr-rfq-status");
   if (!section || !el) return;
 
-  const rfqStatuses = pr.rfq_statuses || pr.rfq_status || [];
-  const showStatuses = new Set(["processing", "processing", "completed"]);
-  const show = rfqStatuses.length > 0 && showStatuses.has(pr.status);
-  if (!show) { el.innerHTML = toString(html`<div class="small text-body-secondary">No RFQs sent yet.</div>`); return; }
+  const rfxList = pr.rfqEmails || pr.rfq_emails || pr.rfq_statuses || [];
+  if (rfxList.length === 0) {
+    el.innerHTML = toString(html`<div class="small text-body-secondary">No RFx sent yet.</div>`);
+    return;
+  }
 
   el.innerHTML = toString(html`
     <div class="table-responsive">
@@ -360,26 +428,117 @@ const renderRfqStatus = () => {
             <th scope="col">Status</th>
             <th scope="col">Sent</th>
             <th scope="col">Responded</th>
+            <th scope="col" class="text-end">RFx</th>
           </tr>
         </thead>
         <tbody>
-          ${rfqStatuses.map((r) => html`
-            <tr>
-              <td>${r.vendor_name || r.name || "--"}</td>
-              <td class="tb-mono small">${r.email || "--"}</td>
-              <td>
-                <span class="tb-rfq-indicator tb-rfq-indicator-${r.status || "pending"}">
-                  ${statusLabel(r.status || "pending")}
-                </span>
-              </td>
-              <td>${relativeSpan(r.sent_at)}</td>
-              <td>${relativeSpan(r.responded_at)}</td>
-            </tr>
-          `)}
+          ${rfxList.map((r) => {
+            const rfxId = r.id || r.rfxId || r.rfx_id;
+            const vendorName = vendorNameFromShortlist(r.vendorId || r.vendor_id) || "Unknown vendor";
+            const email = r.toEmail || r.to_email || r.email || "--";
+            const status = r.status || "pending";
+            const sentAt = r.sentAt ?? r.sent_at;
+            const respondedAt = r.repliedAt ?? r.responded_at ?? r.replied_at;
+            return html`
+              <tr>
+                <td>${vendorName}</td>
+                <td class="tb-mono small">${email}</td>
+                <td>
+                  <span class="tb-rfq-indicator tb-rfq-indicator-${status}">
+                    ${statusLabel(status)}
+                  </span>
+                </td>
+                <td>${relativeSpan(sentAt)}</td>
+                <td>${relativeSpan(respondedAt)}</td>
+                <td class="text-end">
+                  <div class="btn-group btn-group-sm" role="group">
+                    <button type="button" class="btn btn-outline-secondary"
+                            data-rfx-payload="${rfxId}"
+                            title="Show payload sent to mail service">
+                      <i class="bi bi-braces"></i>
+                    </button>
+                    <a class="btn btn-outline-primary"
+                       href="${rfxExternalUrl(rfxId)}"
+                       target="_blank" rel="noopener noreferrer"
+                       title="Open RFx in mail app">
+                      <i class="bi bi-box-arrow-up-right me-1"></i>Open
+                    </a>
+                  </div>
+                </td>
+              </tr>
+              <tr class="d-none" data-rfx-payload-row="${rfxId}">
+                <td colspan="6">
+                  <div class="tb-rfx-payload-panel" id="rfx-payload-${rfxId}">
+                    <div class="small text-body-secondary">Loading…</div>
+                  </div>
+                </td>
+              </tr>
+            `;
+          })}
         </tbody>
       </table>
     </div>
   `);
+};
+
+/* Cache the payloads + send-log per PR so we don't refetch on every toggle. */
+let payloadCache = null;
+let sendLogCache = null;
+
+const fetchPayloadsForPr = async () => {
+  if (payloadCache && sendLogCache) return;
+  const id = prId();
+  const [pRes, sRes] = await Promise.all([
+    fetch(`/api/procurement/prs/${id}/rfq-payloads`).then((r) => r.ok ? r.json() : { payloads: [] }).catch(() => ({ payloads: [] })),
+    fetch(`/api/procurement/prs/${id}/rfx-send-log`).then((r) => r.ok ? r.json() : { entries: [] }).catch(() => ({ entries: [] })),
+  ]);
+  payloadCache = pRes.payloads || [];
+  sendLogCache = sRes.entries || [];
+};
+
+const renderRfxPayloadPanel = async (rfxId) => {
+  const panel = document.getElementById(`rfx-payload-${rfxId}`);
+  if (!panel) return;
+  panel.innerHTML = `<div class="small text-body-secondary">Loading…</div>`;
+  await fetchPayloadsForPr();
+  const payload = (payloadCache || []).find((p) => p.rfxId === rfxId) || null;
+  const sendEntries = (sendLogCache || []).filter((e) => e.rfxId === rfxId);
+
+  const escape = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;" }[c]));
+  const fmt = (v) => v == null ? "<em>none</em>" : `<pre class="tb-mono small mb-0" style="white-space:pre-wrap;max-height:480px;overflow:auto;">${escape(JSON.stringify(v, null, 2))}</pre>`;
+
+  panel.innerHTML = `
+    <div class="row g-3">
+      <div class="col-md-6">
+        <div class="tb-section-label">Payload sent</div>
+        ${fmt(payload)}
+      </div>
+      <div class="col-md-6">
+        <div class="tb-section-label">Mail-service responses (${sendEntries.length})</div>
+        ${sendEntries.length === 0 ? "<em class='small text-body-secondary'>No send attempts logged for this RFx.</em>"
+          : sendEntries.map((e) => `
+            <div class="mb-2">
+              <div class="small">
+                <span class="badge ${e.ok ? "bg-success" : "bg-danger"}">${e.ok ? "ok" : "fail"}</span>
+                ${e.mock ? "<span class='badge bg-secondary'>mock</span>" : ""}
+                ${e.statusCode != null ? `<span class='badge bg-info'>${e.statusCode}</span>` : ""}
+                <span class="text-body-secondary">${new Date(e.createdAt).toLocaleString()}</span>
+              </div>
+              ${e.error ? `<div class="text-danger small">${escape(e.error)}</div>` : ""}
+              ${fmt(e.responseBody ?? null)}
+            </div>
+          `).join("")}
+      </div>
+    </div>
+  `;
+};
+
+const toggleRfxPayload = async (rfxId) => {
+  const row = document.querySelector(`[data-rfx-payload-row="${rfxId}"]`);
+  if (!row) return;
+  const wasHidden = row.classList.contains("d-none");
+  row.classList.toggle("d-none");
+  if (wasHidden) await renderRfxPayloadPanel(rfxId);
 };
 
 /* ---------- Render: comparison ---------- */
@@ -725,6 +884,17 @@ const bindEvents = () => {
     });
   }
 
+  // RFx payload toggle
+  const rfqSection = document.getElementById("pr-rfq-section");
+  if (rfqSection) {
+    rfqSection.addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-rfx-payload]");
+      if (!btn) return;
+      e.preventDefault();
+      toggleRfxPayload(btn.getAttribute("data-rfx-payload"));
+    });
+  }
+
   // Delegated item action clicks
   const itemsSection = document.getElementById("pr-items-section");
   if (itemsSection) {
@@ -772,17 +942,26 @@ const bindSse = () => {
   const prEvents = [
     "pr.updated", "pr.approved", "pr.submitted",
     "pr.cancelled", "pr.completed", "pr.processing",
-    "pr.failed", "pr.sourcing_started", "item.status_changed",
+    "pr.failed", "pr.sourcing_started", "pr.sourced",
+    "pr.item.status_changed",
   ];
+
+  // The PR_SOURCED payload doesn't always have full PR shape; refetch on
+  // any matching event so we always render the latest persisted PR.
+  const refresh = async (data) => {
+    const dataId = data?.id || data?.prId;
+    if (dataId !== id) return;
+    try {
+      pr = await api(`/api/procurement/prs/${id}`);
+      renderAll();
+    } catch { /* ignore */ }
+  };
 
   for (const ev of prEvents) {
     es.addEventListener(ev, (e) => {
       try {
         const data = JSON.parse(e.data);
-        if (data.id === id) {
-          pr = data;
-          renderAll();
-        }
+        refresh(data);
       } catch { /* ignore */ }
     });
   }
@@ -796,6 +975,18 @@ const boot = () => {
   renderChrome();
   bindEvents();
   bindSse();
+  // Pull RFx external base URL from server config so we can build "Open" links.
+  fetch("/api/config")
+    .then((r) => (r.ok ? r.json() : null))
+    .then((cfg) => { if (cfg?.rfxExternalBaseUrl) rfxBaseUrl = cfg.rfxExternalBaseUrl; })
+    .catch(() => {});
+
+  // Pre-load currency rates, then re-render so prices show converted values.
+  ensureRates("USD").then(() => { if (pr) renderAll(); }).catch(() => {});
+
+  // Re-render whenever the user changes currency.
+  window.addEventListener("tb-currency-changed", () => { if (pr) renderAll(); });
+
   loadPr();
 
   // Relative time ticker

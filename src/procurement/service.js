@@ -41,7 +41,7 @@ export const createProcurementService = ({ repos, events, taskService }) => {
   if (!repos) throw new Error("repos is required");
   if (!events) throw new Error("events bus is required");
 
-  const { vendors, purchaseRequests, rfq, vendorResponses, statusLog, itemStatusLog } = repos;
+  const { vendors, purchaseRequests, rfq, vendorResponses, statusLog, itemStatusLog, rfxEventLog, rfxSendLog } = repos;
 
   const emit = (event, data) => events.emit(event, data);
 
@@ -101,13 +101,25 @@ export const createProcurementService = ({ repos, events, taskService }) => {
     if (!pr || ["pending_approval", "cancelled", "completed"].includes(pr.status)) return pr;
     const items = await purchaseRequests.getLineItems(prId);
     const active = items.filter(i => i.status !== "cancelled");
-    if (active.length === 0) return transitionPr(prId, pr.status, "cancelled");
+    if (active.length === 0) {
+      const updated = await transitionPr(prId, pr.status, "cancelled");
+      await emit(ProcurementEvents.PR_UPDATED, updated);
+      await emit(ProcurementEvents.PR_CANCELLED, updated);
+      return updated;
+    }
     let newStatus = pr.status;
     // Simplified: PR completes when all items are quoted (RFQ sent)
     if (active.every(i => ["quoted", "selected", "ordered", "received"].includes(i.status))) newStatus = "completed";
     else if (active.some(i => ["sourcing", "quoted"].includes(i.status))) newStatus = "processing";
     else if (active.every(i => i.status === "draft")) newStatus = "pending";
-    if (newStatus !== pr.status) return transitionPr(prId, pr.status, newStatus);
+    if (newStatus !== pr.status) {
+      const updated = await transitionPr(prId, pr.status, newStatus);
+      // Auto-transitions need explicit events so the dashboard SSE listener
+      // can refresh in real-time (otherwise the user has to F5 to see it).
+      await emit(ProcurementEvents.PR_UPDATED, updated);
+      if (newStatus === "completed") await emit(ProcurementEvents.PR_COMPLETED, updated);
+      return updated;
+    }
     return pr;
   };
 
@@ -139,6 +151,12 @@ export const createProcurementService = ({ repos, events, taskService }) => {
 
     async deletePr(id) {
       const pr = await mustExistPr(id);
+      // Cascade: also remove the sourcing task so the agent queue doesn't
+      // serve up a phantom task whose PR no longer exists.
+      if (pr.sourcingTaskId && taskService) {
+        try { await taskService.delete(pr.sourcingTaskId); }
+        catch { /* task may already be archived/deleted — ignore */ }
+      }
       await purchaseRequests.deleteById(id);
       await emit(ProcurementEvents.PR_CANCELLED, { ...pr, deleted: true });
       return { deleted: true, id };
@@ -486,6 +504,36 @@ export const createProcurementService = ({ repos, events, taskService }) => {
 
     /* ──── Item Status ──── */
 
+    /**
+     * Webhook-friendly entrypoint: accepts a PR-item status from the new
+     * three-layer vocabulary (`pending_rfx`, `rfx_complete`, `cancelled`)
+     * already mapped to the current `pr_line_items.status` enum by the
+     * caller, and applies it idempotently. Re-runs `recomputePrStatus`
+     * so the PR-level status follows.
+     */
+    async applyPrItemStatus({ prId, lineItemId, newStatus, externalLabel, reason, occurredAt } = {}) {
+      const pr = await mustExistPr(prId);
+      const item = await purchaseRequests.getLineItem(prId, lineItemId);
+      if (!item) throw new NotFoundError(`line item ${lineItemId} in PR ${prId}`);
+
+      // Idempotent: same status, no-op.
+      if (item.status === newStatus) {
+        return { item, pr, statusChanged: false };
+      }
+
+      const updated = await purchaseRequests.updateItemStatus(prId, lineItemId, newStatus, {});
+      if (itemStatusLog) {
+        await itemStatusLog.insert(lineItemId, prId, item.status, newStatus, "mail-service", reason || externalLabel || null);
+      }
+      const updatedPr = await recomputePrStatus(prId);
+      await emit(ProcurementEvents.ITEM_STATUS_CHANGED, {
+        prId, itemId: lineItemId,
+        fromStatus: item.status, toStatus: newStatus,
+        externalLabel, occurredAt,
+      });
+      return { item: updated, pr: updatedPr || pr, statusChanged: true };
+    },
+
     async updateItemStatus(prId, itemId, newStatus, { changedBy, note, selectedVendorId, selectedPrice, poNumber } = {}) {
       const pr = await mustExistPr(prId);
       const item = await purchaseRequests.getLineItem(prId, itemId);
@@ -568,8 +616,78 @@ export const createProcurementService = ({ repos, events, taskService }) => {
       return debugLog.get(prId);
     },
 
+    /**
+     * TEMP — internal debug. Returns every mail-service send attempt for a PR
+     * (raw status code, response body, error). Clean this once observability
+     * is solid.
+     */
+    async listRfxSendLog(prId) {
+      if (!rfxSendLog) return [];
+      return rfxSendLog.listByPr(prId);
+    },
+
     getRfqPayloads(prId) {
       return rfqPayloadStore.get(prId) || null;
+    },
+
+    /**
+     * Record an event pushed by the mail service for an RFx.
+     * rfxId is the rfq_emails.id (we mint it when sending).
+     * Returns { inserted, duplicate, rfqEmail, statusChanged }.
+     */
+    async recordRfxEvent({ rfxId, event, occurredAt, vendorEmail, vendorId, prId, detail } = {}) {
+      if (!rfxId || typeof rfxId !== "string") throw new ValidationError("rfxId is required");
+      if (!event || typeof event !== "string") throw new ValidationError("event is required");
+      if (!Number.isFinite(occurredAt)) throw new ValidationError("occurredAt must be a number (ms epoch)");
+
+      const rfqEmail = await rfq.getById(rfxId);
+      if (!rfqEmail) throw new NotFoundError(`rfx ${rfxId}`);
+
+      const logResult = rfxEventLog
+        ? await rfxEventLog.insert({
+            rfxId,
+            prId: prId ?? rfqEmail.prId,
+            vendorId: vendorId ?? rfqEmail.vendorId,
+            event,
+            detail: detail ?? (vendorEmail ? { vendorEmail } : null),
+            occurredAt,
+          })
+        : { inserted: false };
+
+      if (logResult.duplicate) {
+        return { inserted: false, duplicate: true, rfqEmail };
+      }
+
+      const STATUS_FOR_EVENT = {
+        delivered: "delivered",
+        opened: "opened",
+        replied: "replied",
+        send_failed: "send_failed",
+        bounced: "send_failed",
+        expired: "expired",
+      };
+      const newStatus = STATUS_FOR_EVENT[event] ?? null;
+      let updated = rfqEmail;
+      let statusChanged = false;
+      if (newStatus && newStatus !== rfqEmail.status) {
+        updated = await rfq.updateStatus(rfxId, newStatus, {
+          deliveredAt: event === "delivered" ? occurredAt : null,
+          openedAt: event === "opened" ? occurredAt : null,
+          repliedAt: event === "replied" ? occurredAt : null,
+        });
+        statusChanged = true;
+        await emit(ProcurementEvents.RFQ_STATUS_UPDATED, updated);
+      }
+
+      await emit("rfx.event", {
+        rfxId,
+        prId: rfqEmail.prId,
+        vendorId: rfqEmail.vendorId,
+        event,
+        occurredAt,
+      });
+
+      return { inserted: true, rfqEmail: updated, statusChanged };
     },
 
     async updateRfqStatus(rfqId, status, metadata = {}) {

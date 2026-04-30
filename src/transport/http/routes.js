@@ -38,6 +38,7 @@ export const createRoutes = ({
   health = null,
   externalChecks = [],
   mcpHandler = null,
+  currencyCache = null,
   mcpHandlerForAdapter = null,
 }) => {
   const router = express.Router();
@@ -167,7 +168,20 @@ export const createRoutes = ({
       webHost: publicConfig.webHost ?? null,
       webPort: publicConfig.webPort ?? null,
       version: publicConfig.version ?? null,
+      rfxExternalBaseUrl: publicConfig.rfxExternalBaseUrl ?? null,
+      llmConfigured: Boolean(publicConfig.llmConfigured),
     });
+  });
+
+  router.get("/api/currency/rates", async (req, res) => {
+    if (!currencyCache) return res.status(503).json({ error: "currency provider unavailable" });
+    const base = String(req.query.base || "USD").toUpperCase();
+    try {
+      const snap = await currencyCache.getRates(base);
+      return res.json(snap);
+    } catch (err) {
+      return res.status(500).json({ error: err.message });
+    }
   });
 
   router.get("/api/changelog", async (req, res) => {

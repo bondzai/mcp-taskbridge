@@ -1,5 +1,6 @@
 export const ProcurementEvents = Object.freeze({
   PR_CREATED: "pr.created",
+  PR_UPDATED: "pr.updated",
   PR_SUBMITTED: "pr.submitted",
   PR_APPROVED: "pr.approved",
   PR_REJECTED: "pr.rejected",

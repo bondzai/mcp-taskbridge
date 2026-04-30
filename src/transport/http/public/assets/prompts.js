@@ -127,7 +127,15 @@ const tplSourceOldest = () => compose([
     "}",
     "```",
     "",
-    "**If you can't find a real email for an external vendor, do NOT include them — listing them in result text only is useless because no RFQ goes out.**",
+    "**HARD CONSEQUENCE — read this carefully:**",
+    "The decision engine requires that EVERY line item have at least one vendor in the call. " +
+    "If even ONE line item has zero vendors in `shortlist`, the entire batch is rejected " +
+    "and **ZERO RFx emails are sent** — including for items that DID have vendors. " +
+    "So if our internal database lacks coverage for an item, you MUST include externals via " +
+    "the `vendor` object — listing them only in your `submit_result` markdown report sends nothing.",
+    "",
+    "If you can't find a real email for an external vendor, skip that vendor — but you still need " +
+    "at least one vendor (internal or external with email) per line item, otherwise the batch dies.",
   ].join("\n"),
 
   "## Tools",

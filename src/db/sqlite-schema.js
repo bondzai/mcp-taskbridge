@@ -162,6 +162,7 @@ CREATE TABLE IF NOT EXISTS pr_vendor_shortlist (
   line_item_id    INTEGER REFERENCES pr_line_items(id),
   reference_price REAL,
   notes           TEXT,
+  rfx_types       TEXT,                              -- JSON array, e.g. ["RFI","RFQ"]
   created_at      INTEGER NOT NULL
 );
 
@@ -249,6 +250,50 @@ CREATE TABLE IF NOT EXISTS pr_item_status_log (
 
 CREATE INDEX IF NOT EXISTS idx_item_log_item ON pr_item_status_log(line_item_id);
 CREATE INDEX IF NOT EXISTS idx_item_log_pr   ON pr_item_status_log(pr_id);
+
+-- -------------------------------------------------------
+-- Procurement: rfx_event_log
+-- Each event the mail service pushes about an RFx (the rfxId is the
+-- rfq_emails.id we generate when sending). Idempotent on (rfx_id,event,occurred_at).
+-- -------------------------------------------------------
+CREATE TABLE IF NOT EXISTS rfx_event_log (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  rfx_id       TEXT    NOT NULL,
+  pr_id        TEXT,
+  vendor_id    TEXT,
+  event        TEXT    NOT NULL,
+  detail       TEXT,
+  occurred_at  INTEGER NOT NULL,
+  received_at  INTEGER NOT NULL,
+  UNIQUE (rfx_id, event, occurred_at)
+);
+
+CREATE INDEX IF NOT EXISTS idx_rfx_event_rfx ON rfx_event_log(rfx_id);
+CREATE INDEX IF NOT EXISTS idx_rfx_event_pr  ON rfx_event_log(pr_id);
+
+-- -------------------------------------------------------
+-- Procurement: rfx_send_log
+-- Internal debug log of every mail-service send attempt.
+-- Captures the raw response body / error for each RFx dispatch so we
+-- can introspect what the email service returned, even after restarts.
+-- (TEMP: clean this table or drop it once observability is solid.)
+-- -------------------------------------------------------
+CREATE TABLE IF NOT EXISTS rfx_send_log (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  rfx_id          TEXT NOT NULL,
+  pr_id           TEXT,
+  vendor_id       TEXT,
+  ok              INTEGER NOT NULL,    -- 1 = success, 0 = failure
+  mock            INTEGER NOT NULL,
+  status_code     INTEGER,
+  response_body   TEXT,                -- JSON
+  error           TEXT,
+  request_summary TEXT,                -- JSON: vendor name/email, items count
+  created_at      INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_rfx_send_log_rfx ON rfx_send_log(rfx_id);
+CREATE INDEX IF NOT EXISTS idx_rfx_send_log_pr  ON rfx_send_log(pr_id);
 `;
 
 /**
@@ -281,4 +326,7 @@ export const migrateSqlite = async (db) => {
   await addColIfMissing("pr_line_items", "selected_price", "REAL", null);
   await addColIfMissing("pr_line_items", "po_number", "TEXT", null);
   await addColIfMissing("pr_line_items", "note", "TEXT", null);
+
+  // Procurement: pr_vendor_shortlist.rfx_types (agent-supplied)
+  await addColIfMissing("pr_vendor_shortlist", "rfx_types", "TEXT", null);
 };

@@ -64,17 +64,21 @@ gcloud run deploy procurement-core \
   --cpu-boost --session-affinity --no-cpu-throttling
 ```
 
-## Cloud Run config rationale
+## Cloud Run config rationale (demo / cost-optimised)
 
 | Setting | Value | Why |
 |---|---|---|
-| `--min-instances 1` | 1 | Keeps a warm container; SSE can't tolerate cold starts |
-| `--max-instances 3` | 3 | Conservative — Supabase free tier allows ~50 connections total |
-| `--timeout 3600` | 1 hour | SSE connections are long-lived |
-| `--cpu-boost` | on | Faster startup (PostgreSQL TLS handshake + schema check) |
-| `--session-affinity` | on | SSE clients stick to the same instance |
-| `--no-cpu-throttling` | on | CPU stays allocated even when idle (event loop, SSE keepalives) |
+| `--min-instances 0` | 0 | Scale to zero when idle — pay nothing between sessions |
+| `--max-instances 1` | 1 | Single instance is enough for a demo; avoids parallel cold starts |
+| `--timeout 3600` | 1 hour | SSE connections are long-lived (timeout doesn't cost more) |
+| `--cpu-boost` | on | Faster cold-start (PostgreSQL TLS handshake + schema check) |
+| `--no-session-affinity` | off | Single instance = irrelevant; saves a knob |
+| `--cpu-throttling` | on | CPU only billed during active requests (Cloud Run default, cheapest) |
 | `--memory 512Mi` | 512MB | Plenty for a single-instance Node.js app |
+
+**Trade-off:** with `min-instances=0` + `cpu-throttling` the first request after idle takes
+~3-8 s (cold start). SSE clients reconnect transparently; webhooks have a brief delay.
+Switch back to `--min-instances 1 --no-cpu-throttling` if/when latency matters.
 
 ## Networking
 

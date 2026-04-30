@@ -28,8 +28,11 @@
             <button type="button" class="btn btn-outline-secondary" id="btn-export-prs" title="Export all PRs to JSON">
               <i class="bi bi-download me-1"></i>Export
             </button>
-            <button type="button" class="btn btn-outline-primary" id="btn-from-file" title="Create PR from PDF/TXT">
-              <i class="bi bi-file-earmark-arrow-up me-1"></i>From File
+            <button type="button" class="btn btn-outline-secondary" id="btn-mock-doc" title="Download an example PR document">
+              <i class="bi bi-file-earmark-text me-1"></i>Download example
+            </button>
+            <button type="button" class="btn btn-outline-primary" id="btn-from-file" title="Upload PDF/TXT — extract PR via LLM">
+              <i class="bi bi-file-earmark-arrow-up me-1"></i>Upload file
             </button>
             <button type="button" class="btn btn-primary" id="btn-toggle-new-pr">
               <i class="bi bi-plus-lg me-1"></i>New PR
@@ -88,6 +91,32 @@
         <nav id="pr-pagination" class="tb-pagination" aria-label="PR list pagination"></nav>
       </div>
     </main>
+
+    <!-- "Not a PR" modal — shown when the uploaded file fails LLM validation -->
+    <div class="modal fade" id="not-a-pr-modal" tabindex="-1" aria-labelledby="not-a-pr-title" aria-hidden="true">
+      <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title" id="not-a-pr-title">
+              <i class="bi bi-exclamation-triangle me-2 text-warning"></i>Not a Purchase Requisition
+            </h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+          </div>
+          <div class="modal-body">
+            <p>The file you uploaded doesn't look like a procurement document, so we didn't create a PR.</p>
+            <p class="small text-body-secondary mb-2"><strong>Reason from the analyzer:</strong></p>
+            <p id="not-a-pr-reason" class="small fst-italic">—</p>
+            <p class="small text-body-secondary mb-0">
+              Try a PDF or TXT containing line items (material, quantity, unit). Click
+              <strong>Download example</strong> for a template you can edit and re-upload.
+            </p>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+          </div>
+        </div>
+      </div>
+    </div>
 
     <footer class="tb-footer">
       <div class="container">Procurement Agent</div>

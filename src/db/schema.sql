@@ -156,6 +156,7 @@ CREATE TABLE IF NOT EXISTS pr_vendor_shortlist (
   line_item_id    INTEGER REFERENCES pr_line_items(id),
   reference_price REAL,
   notes           TEXT,
+  rfx_types       TEXT,
   created_at      BIGINT NOT NULL
 );
 
@@ -243,3 +244,50 @@ CREATE TABLE IF NOT EXISTS pr_item_status_log (
 
 CREATE INDEX IF NOT EXISTS idx_item_log_item ON pr_item_status_log(line_item_id);
 CREATE INDEX IF NOT EXISTS idx_item_log_pr   ON pr_item_status_log(pr_id);
+
+-- Procurement: rfx_event_log
+CREATE TABLE IF NOT EXISTS rfx_event_log (
+  id           SERIAL PRIMARY KEY,
+  rfx_id       TEXT    NOT NULL,
+  pr_id        TEXT,
+  vendor_id    TEXT,
+  event        TEXT    NOT NULL,
+  detail       TEXT,
+  occurred_at  BIGINT  NOT NULL,
+  received_at  BIGINT  NOT NULL,
+  UNIQUE (rfx_id, event, occurred_at)
+);
+
+CREATE INDEX IF NOT EXISTS idx_rfx_event_rfx ON rfx_event_log(rfx_id);
+CREATE INDEX IF NOT EXISTS idx_rfx_event_pr  ON rfx_event_log(pr_id);
+
+-- Procurement: rfx_send_log (internal debug — clean later)
+CREATE TABLE IF NOT EXISTS rfx_send_log (
+  id              SERIAL PRIMARY KEY,
+  rfx_id          TEXT NOT NULL,
+  pr_id           TEXT,
+  vendor_id       TEXT,
+  ok              INTEGER NOT NULL,
+  mock            INTEGER NOT NULL,
+  status_code     INTEGER,
+  response_body   TEXT,
+  error           TEXT,
+  request_summary TEXT,
+  created_at      BIGINT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_rfx_send_log_rfx ON rfx_send_log(rfx_id);
+CREATE INDEX IF NOT EXISTS idx_rfx_send_log_pr  ON rfx_send_log(pr_id);
+
+-- ============================================================
+-- Idempotent column-additive migrations.
+-- CREATE TABLE IF NOT EXISTS doesn't add columns to an existing table,
+-- so any column added after the initial deploy must be re-applied here
+-- via ADD COLUMN IF NOT EXISTS on every startup.
+-- ============================================================
+ALTER TABLE pr_vendor_shortlist ADD COLUMN IF NOT EXISTS rfx_types TEXT;
+ALTER TABLE pr_line_items       ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'draft';
+ALTER TABLE pr_line_items       ADD COLUMN IF NOT EXISTS selected_vendor_id TEXT;
+ALTER TABLE pr_line_items       ADD COLUMN IF NOT EXISTS selected_price NUMERIC(12,2);
+ALTER TABLE pr_line_items       ADD COLUMN IF NOT EXISTS po_number TEXT;
+ALTER TABLE pr_line_items       ADD COLUMN IF NOT EXISTS note TEXT;
+ALTER TABLE tasks               ADD COLUMN IF NOT EXISTS metadata TEXT;

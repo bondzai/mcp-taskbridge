@@ -409,7 +409,7 @@ const bindSse = () => {
     "pr.created", "pr.updated", "pr.approved",
     "pr.submitted", "pr.cancelled", "pr.completed",
     "pr.processing", "pr.failed", "pr.sourcing_started",
-    "pr.item.status_changed",
+    "pr.sourced", "pr.item.status_changed",
   ];
 
   const refreshPr = async (prId, flash = true) => {
@@ -485,7 +485,23 @@ const createFromFile = async (file) => {
     fd.append("file", file);
     const res = await fetch("/api/procurement/prs/from-file", { method: "POST", body: fd });
     const body = await res.json();
-    if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
+    if (!res.ok) {
+      if (body.code === "NOT_A_PR") {
+        const reasonEl = document.getElementById("not-a-pr-reason");
+        if (reasonEl) reasonEl.textContent = body.error || "Document doesn't appear to be a PR.";
+        const modalEl = document.getElementById("not-a-pr-modal");
+        if (modalEl && window.bootstrap?.Modal) {
+          window.bootstrap.Modal.getOrCreateInstance(modalEl).show();
+        } else {
+          toast(body.error || "File is not a PR.");
+        }
+        return;
+      }
+      if (body.code === "LLM_NOT_CONFIGURED") {
+        throw new Error("LLM not configured on this server. Add OPENAI_API_KEY and redeploy.");
+      }
+      throw new Error(body.error || `HTTP ${res.status}`);
+    }
     const ex = body.extracted;
 
     // Open the inline form and pre-fill it for review.
@@ -641,6 +657,39 @@ const boot = () => {
     if (f) importJson(f);
     e.target.value = "";
   });
+  // Detect LLM availability — disable "From File" with a clear tooltip when
+  // the server has no key configured. Mock Doc still works (server-only).
+  fetch("/api/config")
+    .then((r) => (r.ok ? r.json() : null))
+    .then((cfg) => {
+      const fromFileBtn = document.getElementById("btn-from-file");
+      if (!cfg?.llmConfigured && fromFileBtn) {
+        fromFileBtn.disabled = true;
+        fromFileBtn.title = "LLM not configured on this server (OPENAI_API_KEY missing). Add the key and redeploy to enable.";
+        fromFileBtn.classList.add("opacity-50");
+      }
+    })
+    .catch(() => {});
+
+  document.getElementById("btn-mock-doc")?.addEventListener("click", async () => {
+    try {
+      const res = await fetch("/api/procurement/mock-pr-document");
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const blob = await res.blob();
+      const cd = res.headers.get("content-disposition") || "";
+      const m = cd.match(/filename="([^"]+)"/);
+      const filename = m ? m[1] : `mock-pr-${Date.now()}.txt`;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = filename;
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
+      toast(`Downloaded ${filename}`);
+    } catch (err) {
+      toast(err.message || "Download failed");
+    }
+  });
+
   document.getElementById("btn-from-file")?.addEventListener("click", () => {
     document.getElementById("pr-from-file-input")?.click();
   });

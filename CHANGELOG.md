@@ -5,6 +5,228 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.3.0] — 2026-04-29
+
+### Added
+
+- **Status hierarchy doc** (`docs/status-model.md`) — three-layer model
+  (PR → PR item → RFx item), unified vocabulary, roll-up rules, state
+  diagrams, and webhook contracts.
+- **`POST /webhooks/rfx-item-status`** — mail service can push RFx-item
+  status updates `{rfxId, lineItemId?, status, occurredAt, detail?}`.
+  Statuses: `pending_send | awaiting_reply | replied | expired |
+  completed | cancelled`. Audit-logged in `rfx_event_log` and mapped
+  onto the existing `rfq_emails.status` column for now (until a
+  dedicated `pr_rfx_items` table lands).
+- **`POST /webhooks/pr-item-status`** — mail service can push PR-item
+  status updates `{prId, lineItemId, status, occurredAt, reason?}`.
+  Statuses: `pending_rfx | rfx_complete | cancelled`. Idempotent on
+  same status. Re-runs `recomputePrStatus()` so the PR-level status
+  follows automatically.
+- New service method `applyPrItemStatus()` that wraps the per-item
+  update + recompute in one call.
+
+Both webhooks live under `/webhooks/`, skip auth middleware, and use
+permissive HMAC during bring-up (verify when secret + signature are
+both present, accept otherwise).
+
+## [1.2.3] — 2026-04-29
+
+### Changed
+
+- Dashboard buttons renamed for clarity:
+  - **Mock Doc** → **Download example**
+  - **From File** → **Upload file**
+
+### Added
+
+- **Non-PR upload validation.** The LLM extractor now returns
+  `{isPurchaseRequest, rejectionReason}`. When the file isn't a PR
+  (essay, README, blank, contract, etc.) the server responds `422`
+  with `code: "NOT_A_PR"`, and the UI surfaces a Bootstrap modal
+  explaining the rejection rather than letting through an empty PR.
+
+## [1.2.2] — 2026-04-29
+
+### Fixed
+
+- **PR auto-completion now broadcasts in real time.** `recomputePrStatus`
+  used to mutate the row silently — dashboard / detail pages had to be
+  manually refreshed to see the transition. Now emits `PR_UPDATED`
+  (always) and `PR_COMPLETED` / `PR_CANCELLED` (when applicable) so SSE
+  listeners refresh in place.
+- Dashboard subscribes to `pr.sourced` (was missing). Detail page also
+  refetches the PR on every PR-related event so the latest persisted
+  shape is rendered.
+
+### Added
+
+- `ProcurementEvents.PR_UPDATED` constant (`pr.updated`).
+
+### Config
+
+- `OPENAI_API_KEY` added to `.env.production` and `.env.local`. Both
+  files are gitignored. Run `./deploy.sh` to ship the key to Cloud Run.
+
+## [1.2.1] — 2026-04-29
+
+### Fixed
+
+- **`POST /api/procurement/prs/from-file`** now returns `503` with code
+  `LLM_NOT_CONFIGURED` when the LLM provider can't initialize (e.g.
+  `OPENAI_API_KEY` missing on the server). Was returning a confusing 500.
+- `/api/config` exposes `llmConfigured` (bool). Dashboard disables the
+  **From File** button with a clear tooltip when the server has no key —
+  instead of letting the user click straight into an error.
+
+## [1.2.0] — 2026-04-29
+
+### Added
+
+- **Mock PR document download** — `GET /api/procurement/mock-pr-document`
+  generates a realistic, RFP-style `.txt` requisition. Dashboard has a
+  new **"Mock Doc"** button that downloads it; pair with **From File**
+  for an LLM round-trip demo.
+  Helper: `renderMockPrDocument(pr)` in `src/procurement/mock-prs.js`.
+- **Currency switch (USD ↔ THB ↔ …).** Pluggable provider abstraction
+  (`src/currency/provider.js`) with **frankfurter.app** as the default
+  free, no-key implementation. In-process cache with TTL (1 h),
+  stale-while-revalidate, hardcoded floor fallback for outages, and
+  request timeout (5 s).
+  - `GET /api/currency/rates?base=USD` → `{base, rates, fetchedAt, source, stale}`
+  - Header dropdown picker, persists in `localStorage` (`settings.currency`).
+  - `formatMoney(amount, from)` helper in `chrome.js` does on-the-fly
+    conversion at render time. Stored prices stay in their native currency.
+  - Detail page re-renders when the currency changes (`tb-currency-changed`
+    event).
+
+## [1.1.6] — 2026-04-29
+
+### Fixed
+
+- **Mail-service `deadline` always a number-or-null.** ISO date strings,
+  numeric strings, NaN, and `undefined`/empty are all coerced before send.
+  Mail service was returning `"deadline must be a number (epoch ms) or null"`
+  when an ISO string slipped through.
+
+### Added
+
+- **Payload debug button** on each RFx row (PR detail → RFx tab).
+  The braces (`{}`) icon expands an inline panel showing the JSON payload
+  we sent to the mail service plus every persisted send response (status
+  code, body, error). Cached per page-load so toggling is instant.
+
+## [1.1.5] — 2026-04-29
+
+### Changed
+
+- **Mail-service payload now has a stable shape.** Every documented key
+  (`requestedBy`, `deadline`, `notes`, `vendor.email`, `vendor.phone`,
+  `vendor.address`, `vendor.leadTimeDays`, item `specification`/
+  `referencePrice`, etc.) is always present in the JSON. Missing values
+  are explicit `null` (or `[]` for arrays) instead of being dropped by
+  `JSON.stringify`. Added `notes` (PR-level) to the payload as well.
+
+## [1.1.4] — 2026-04-29
+
+### Added (internal debug — clean later)
+
+- **`rfx_send_log` table** persists every mail-service send response per RFx
+  (status code, response body, error, vendor summary). Survives container
+  restarts so we can debug what the email service returned even after
+  Cloud Run scales to zero.
+- New repo `createRfxSendLogRepository` + service method `listRfxSendLog(prId)`.
+- New endpoint `GET /api/procurement/prs/:id/rfx-send-log` returns the
+  log entries newest-first for a given PR.
+- `email-client.sendBatch` now returns structured failures (`statusCode`,
+  `response`, `error`) instead of throwing, and includes a `payload`
+  reference so the caller can build the persisted summary.
+
+## [1.1.3] — 2026-04-29
+
+### Changed
+
+- Outgoing mail-service payload now defaults `rfxTypes` to `["RFI","RFQ"]`
+  when the agent didn't supply a value (or supplied an empty array).
+  Previously it was `[]`, leaving the mail service with no instruction.
+
+## [1.1.2] — 2026-04-29
+
+### Fixed
+
+- **Shortlist no longer wiped between agent calls.** `insertShortlist`
+  used to `DELETE FROM pr_vendor_shortlist WHERE pr_id = ?` before each
+  insert batch, so an agent that submitted vendors across multiple
+  `submit_vendor_shortlist` calls (one per item) would lose all but the
+  last batch. Behaviour is now append-and-dedupe by
+  `(vendor_id, line_item_id)`.
+- **Sourcing prompt strengthened** to make the "all-or-nothing" rule of
+  the decision engine explicit: if any line item has zero vendors in the
+  call, the whole batch is rejected and zero RFx emails go out. Listing
+  externals only in `submit_result` markdown is now flagged as a no-op.
+
+## [1.1.1] — 2026-04-29
+
+### Fixed
+
+- **Orphan sourcing tasks after PR delete.** `service.deletePr` now also
+  deletes the linked sourcing task (via `purchase_requests.sourcing_task_id`).
+  `bin/delete-all-prs.js` cleans every sourcing task as well. Previously,
+  deleting a PR left its task in the queue — `list_pending_tasks` would
+  return phantom tasks whose embedded title (e.g. "IT hardware refresh")
+  no longer matched any existing PR, confusing the agent and the UI.
+
+## [1.1.0] — 2026-04-29
+
+### Added
+
+- **JSON export / import** for purchase requisitions (per-PR + bulk).
+  Endpoints: `GET /api/procurement/prs/export`, `GET /api/procurement/prs/:id/export`,
+  `POST /api/procurement/prs/import`. Dashboard buttons added.
+- **Create PR from PDF/TXT** via LLM extraction. New `src/llm/` provider
+  abstraction (`extractPrFromDocument`, `generatePrs`); OpenAI implementation
+  configured via `LLM_PROVIDER` + `OPENAI_API_KEY`. Endpoint
+  `POST /api/procurement/prs/from-file` — extracted JSON pre-fills the form.
+- **Reusable mock-PR generator** (`src/procurement/mock-prs.js`) + CLI
+  `bin/mock-prs.js`. Supports DB-direct + HTTP API modes, optional
+  `--llm` for LLM-driven variety, `--industry <hint>`, `--seed <int>`.
+- **RFx webhook endpoint** `POST /webhooks/rfx-events` (mail-service → core).
+  Persists to new `rfx_event_log` table (idempotent on
+  `(rfx_id,event,occurred_at)`), updates `rfq_emails.status`, broadcasts
+  `rfx.event` on SSE. Permissive HMAC during bring-up.
+- **External RFx links** — `RFX_EXTERNAL_BASE_URL` env (default
+  `https://freeform-agents.web.app/rfx`) exposed via `/api/config`. The PR
+  detail → RFx tab now has an **Open ↗** button per RFx row.
+- **Edit / Delete** actions on PR cards in the dashboard list.
+- **Generate mock PRs** template in the prompt library (top-right wand icon).
+- **`rfxTypes` field** in outgoing mail-service payload, sourced from the
+  agent's `submit_vendor_shortlist` call. Defaults to `[]`.
+
+### Changed
+
+- Renamed nav tab + dashboard heading to **"Purchase Requisitions"**.
+- Renamed PR detail tab **"RFQ" → "RFx"**.
+- Removed PR-level `draft` status; PRs are created directly in
+  `pending_approval`. Helper script `bin/delete-drafts.js` cleans legacy rows.
+- Cloud Run defaults switched to demo profile: `--min-instances 0`,
+  `--max-instances 1`, `--cpu-throttling`, `--no-session-affinity`.
+- Postgres schema applies idempotent `ALTER TABLE ADD COLUMN IF NOT EXISTS`
+  migrations on every container start, so column additions reach Supabase
+  without manual SQL.
+- UI: status timeline now reads camelCase fields, items table shows vendor
+  names instead of raw UUIDs, multi-vendor pills per item.
+
+### Fixed
+
+- `submit_vendor_shortlist` 500 on prod ("column rfx_types does not exist"):
+  added migration ALTERs to `schema.sql`.
+- Dashboard PR cards refresh correctly when status updates arrive over SSE.
+
+### Database
+
+- New table `rfx_event_log`.
+- New column `pr_vendor_shortlist.rfx_types` (JSON-encoded array).
+
 ## [1.0.0] — 2026-04-29
 
 First production release. Rebranded from `mcp-taskbridge` to `procurement-agent`.

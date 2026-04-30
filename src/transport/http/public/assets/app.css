@@ -2524,6 +2524,29 @@ html[data-theme="dim"] .tb-pill-review {
   content: " \00b7 ";
 }
 
+/* Vendors per item — chip list (multi-vendor support) */
+.tb-item-vendors {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+.tb-vendor-pill {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.74rem;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--tb-surface-alt);
+  border: 1px solid var(--tb-border);
+  color: var(--tb-text);
+  white-space: nowrap;
+}
+.tb-vendor-pill-selected {
+  background: color-mix(in srgb, var(--tb-success, #2eaa5a) 15%, var(--tb-surface-alt));
+  border-color: color-mix(in srgb, var(--tb-success, #2eaa5a) 50%, var(--tb-border));
+}
+
 /* Item timeline (inline expandable) */
 .tb-item-timeline {
   margin-top: 8px;

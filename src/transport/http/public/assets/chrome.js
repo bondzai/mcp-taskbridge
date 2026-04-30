@@ -14,6 +14,7 @@ const DEFAULT_SETTINGS = {
   pageSize: 10,
   defaultStatus: "all",
   defaultSort: "newest",
+  currency: "USD",
 };
 
 export const loadSettings = () => {
@@ -32,6 +33,63 @@ export const saveSettings = (patch) => {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
   return next;
 };
+
+/* ---------- Currency ---------- */
+
+let _ratesCache = null; // { base, rates, fetchedAt, source, stale }
+let _ratesPromise = null;
+
+const RATES_TTL_MS = 5 * 60 * 1000; // refresh every 5 min in the browser
+
+export const getActiveCurrency = () => loadSettings().currency || "USD";
+
+const fetchRates = async (base = "USD") => {
+  if (_ratesCache && _ratesCache.base === base && (Date.now() - _ratesCache._loadedAt) < RATES_TTL_MS) {
+    return _ratesCache;
+  }
+  if (_ratesPromise) return _ratesPromise;
+  _ratesPromise = fetch(`/api/currency/rates?base=${encodeURIComponent(base)}`)
+    .then((r) => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))
+    .then((snap) => { _ratesCache = { ...snap, _loadedAt: Date.now() }; return _ratesCache; })
+    .catch(() => { _ratesCache = { base, rates: { [base]: 1 }, source: "client-fallback", _loadedAt: Date.now() }; return _ratesCache; })
+    .finally(() => { _ratesPromise = null; });
+  return _ratesPromise;
+};
+
+/**
+ * Format an amount stored in `from` currency, displayed in the user's
+ * active currency. Synchronous; if rates haven't loaded yet, returns
+ * the raw amount in its native currency. Call ensureRates() first if
+ * you want to guarantee converted values.
+ */
+export const formatMoney = (amount, from = "USD") => {
+  if (amount == null || !Number.isFinite(Number(amount))) return "";
+  const target = getActiveCurrency();
+  const src = String(from || "USD").toUpperCase();
+  const tgt = String(target).toUpperCase();
+  let value = Number(amount);
+  let display = src;
+
+  if (_ratesCache && _ratesCache.base) {
+    const r = _ratesCache.rates || {};
+    // Convert src → cache.base → tgt
+    const srcRate = src === _ratesCache.base ? 1 : r[src];
+    const tgtRate = tgt === _ratesCache.base ? 1 : r[tgt];
+    if (srcRate && tgtRate) {
+      value = (value / srcRate) * tgtRate;
+      display = tgt;
+    }
+  }
+
+  try {
+    return new Intl.NumberFormat(undefined, { style: "currency", currency: display, maximumFractionDigits: 2 }).format(value);
+  } catch {
+    return `${display} ${value.toFixed(2)}`;
+  }
+};
+
+/** Pre-load rates so the next formatMoney() call returns converted values. */
+export const ensureRates = async (base = "USD") => fetchRates(base);
 
 /* ---------- Theme ---------- */
 
@@ -163,6 +221,22 @@ export const renderChrome = ({ pendingCount = 0 } = {}) => {
               <span class="tb-label">pending</span>
             </span>
 
+            <div class="dropdown" id="tb-currency-dropdown">
+              <button class="tb-icon-btn" data-bs-toggle="dropdown" aria-label="Currency" title="Currency">
+                <span class="tb-currency-label">${(settings.currency || "USD")}</span>
+              </button>
+              <ul class="dropdown-menu dropdown-menu-end" id="tb-currency-menu">
+                ${["USD", "THB", "EUR", "GBP", "JPY", "SGD", "CNY"].map((c) => `
+                  <li>
+                    <button class="dropdown-item d-flex align-items-center gap-2" data-currency="${c}">
+                      <span>${c}</span>
+                      ${(settings.currency || "USD") === c ? '<i class="bi bi-check2 ms-auto"></i>' : ""}
+                    </button>
+                  </li>
+                `).join("")}
+              </ul>
+            </div>
+
             <button type="button" class="tb-icon-btn" id="tb-prompts-btn" title="Prompt library" aria-label="Prompt library">
               <i class="bi bi-magic"></i>
             </button>
@@ -216,6 +290,17 @@ export const renderChrome = ({ pendingCount = 0 } = {}) => {
       const next = btn.getAttribute("data-theme");
       saveSettings({ theme: next });
       applyTheme(next);
+      renderChrome({ pendingCount: Number(document.getElementById("tb-pending-count")?.textContent || 0) });
+    });
+  });
+
+  // Currency dropdown wiring
+  slot.querySelectorAll("[data-currency]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const next = btn.getAttribute("data-currency");
+      saveSettings({ currency: next });
+      // Notify any listeners on the page so prices re-render in place.
+      window.dispatchEvent(new CustomEvent("tb-currency-changed", { detail: { currency: next } }));
       renderChrome({ pendingCount: Number(document.getElementById("tb-pending-count")?.textContent || 0) });
     });
   });
