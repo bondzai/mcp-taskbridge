@@ -1,6 +1,6 @@
 {
   "name": "procurement-agent",
-  "version": "1.3.0",
+  "version": "1.4.9",
   "description": "Procurement automation platform with MCP agents. Submit purchase requests via web UI; AI agents (Cowork, Codex) source vendors and submit shortlists through standard MCP tools. Production-grade with PostgreSQL/Supabase, Cloud Run deployment, and email service integration.",
   "type": "module",
   "private": true,

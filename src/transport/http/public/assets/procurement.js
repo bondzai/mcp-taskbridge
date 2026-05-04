@@ -106,7 +106,7 @@ const filtered = () => {
   }
 
   // Sort
-  const sort = cs.sort || "newest";
+  const sort = cs.sort || "updated";
   list.sort((a, b) => {
     switch (sort) {
       case "newest":  return (b.createdAt || 0) - (a.createdAt || 0);
@@ -157,7 +157,13 @@ const renderStats = () => {
       </div>
     `)}
   `);
+};
 
+const bindStatFilter = () => {
+  const el = document.getElementById("pr-stats");
+  if (!el) return;
+  // Bound ONCE at boot — renderStats() rewrites innerHTML on every render,
+  // so a listener added inside renderStats stacks up and fires N times per click.
   el.addEventListener("click", (e) => {
     const card = e.target.closest("[data-phase]");
     if (!card) return;
@@ -179,12 +185,12 @@ const rebuildControls = () => {
   controls.render({
     views: ["list"],
     sorts: [
+      { value: "updated", label: "Recently updated" },
       { value: "newest", label: "Newest first" },
       { value: "oldest", label: "Oldest first" },
-      { value: "updated", label: "Recently updated" },
       { value: "status", label: "By status" },
     ],
-    defaultSort: "newest",
+    defaultSort: "updated",
     filters: [{
       id: "status",
       label: "Status",
@@ -287,8 +293,9 @@ const prCard = (pr) => {
             <i class="bi bi-pencil me-1"></i>Edit
           </button>
         ` : ""}
-        <button type="button" class="btn btn-outline-danger btn-sm" data-action="delete" data-id="${pr.id}" title="Delete this PR">
-          <i class="bi bi-trash me-1"></i>Delete
+        <button type="button" class="tb-icon-btn tb-icon-btn-danger ms-auto" data-action="delete" data-id="${pr.id}"
+                aria-label="Delete this PR" title="Delete this PR">
+          <i class="bi bi-trash"></i>
         </button>
       </div>
     </div>
@@ -645,6 +652,7 @@ const boot = () => {
   });
 
   bindEvents();
+  bindStatFilter();
   bindSse();
   bindInlineForm();
 

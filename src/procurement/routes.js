@@ -404,15 +404,6 @@ export const createProcurementRoutes = ({ service, rfxWebhookSecret = null, logg
     }
   });
 
-  router.post("/api/procurement/prs/:id/duplicate", json, async (req, res) => {
-    try {
-      const pr = await service.duplicatePr(req.params.id);
-      return res.status(201).json(pr);
-    } catch (err) {
-      return sendError(res, err);
-    }
-  });
-
   router.post("/api/procurement/prs/:id/reprocess", json, async (req, res) => {
     try {
       const pr = await service.reprocessPr(req.params.id);

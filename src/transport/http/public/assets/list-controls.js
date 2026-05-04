@@ -143,22 +143,43 @@ export const createListControls = (opts) => {
   const renderToolbar = () => {
     if (!toolbarContainer) return;
 
-    // Ensure state defaults match config
-    if (!state.sort && config.defaultSort) state.sort = config.defaultSort;
-    if (config.defaultView && !persisted.view) {
-      // only apply default if no persisted pref
-      if (config.views.includes(config.defaultView)) {
-        state.view = persisted.view || config.defaultView;
-      }
+    // Apply config defaults ONLY when state is genuinely empty. The
+    // `persisted` snapshot was captured at init and is stale after the
+    // user changes anything — re-applying it on every render() (which is
+    // what re-fetches like loadVendors() trigger) would otherwise reset
+    // pageSize / view to load-time values.
+    if (!state.sort && config.defaultSort) {
+      state.sort = config.defaultSort;
     }
-    if (persisted.pageSize && config.pageSizes.includes(persisted.pageSize)) {
-      state.pageSize = persisted.pageSize;
+    if (!state.view && config.defaultView && config.views.includes(config.defaultView)) {
+      state.view = config.defaultView;
+    }
+    if (state.pageSize == null && config.pageSize) {
+      state.pageSize = config.pageSize;
     }
 
     const hasViews = config.views.length > 1;
     const hasSorts = config.sorts.length > 0;
     const hasFilters = config.filters.length > 0;
     const hasPageSizes = config.pageSizes.length > 1;
+
+    // "Dirty" check — show the Clear button whenever any of the user's
+    // filter/sort/search state differs from the first-option / default.
+    const firstFilterVal = (f) => {
+      if (!f.options.length) return "";
+      const o = f.options[0];
+      return typeof o === "string" ? o : o.value;
+    };
+    const isDirty = () => {
+      if ((state.search || "").trim() !== "") return true;
+      for (const f of config.filters) {
+        const cur = state.filters[f.id];
+        const def = firstFilterVal(f);
+        if (cur != null && cur !== def) return true;
+      }
+      if (config.defaultSort && state.sort && state.sort !== config.defaultSort) return true;
+      return false;
+    };
 
     toolbarContainer.innerHTML = toString(html`
       <div class="tb-list-controls">
@@ -203,6 +224,14 @@ export const createListControls = (opts) => {
                 <option value="${n}" ${n === state.pageSize ? raw("selected") : ""}>${n}/page</option>
               `)}
             </select>
+          ` : ""}
+
+          ${isDirty() ? html`
+            <button type="button" class="btn btn-sm btn-outline-secondary"
+                    data-lc-action="clear" title="Clear search, filters, and sort"
+                    aria-label="Clear filters">
+              <i class="bi bi-x-circle me-1"></i>Clear
+            </button>
           ` : ""}
 
           ${hasViews ? html`
@@ -301,6 +330,12 @@ export const createListControls = (opts) => {
   };
 
   const handleToolbarClick = (e) => {
+    const clearBtn = e.target.closest("[data-lc-action='clear']");
+    if (clearBtn) {
+      clearFilters();
+      return;
+    }
+
     const btn = e.target.closest("[data-lc-action='view']");
     if (!btn) return;
     const view = btn.getAttribute("data-lc-view");
@@ -314,6 +349,21 @@ export const createListControls = (opts) => {
       });
       notify();
     }
+  };
+
+  /* Reset search, filters (to first-option default), and sort (to defaultSort).
+     Leaves view + pageSize alone — those are user prefs, not filter state. */
+  const clearFilters = () => {
+    state.search = "";
+    state.page = 1;
+    state.filters = {};
+    for (const f of config.filters) {
+      const o = f.options[0];
+      state.filters[f.id] = o == null ? "" : (typeof o === "string" ? o : o.value);
+    }
+    state.sort = config.defaultSort || "";
+    renderToolbar();   // refresh dropdown values + remove the Clear button
+    notify();
   };
 
   const bindPaginationEvents = () => {

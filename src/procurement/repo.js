@@ -179,6 +179,15 @@ export const createVendorsRepository = (db) => {
       if (!id) return null;
       return rowToVendor(await db.queryOne(`SELECT * FROM vendors WHERE id = @id`, { id }));
     },
+    async getByEmail(email) {
+      if (!email) return null;
+      // Case-insensitive match — agents and humans both vary capitalisation.
+      const rows = await db.query(
+        `SELECT * FROM vendors WHERE LOWER(email) = LOWER(@email) LIMIT 1`,
+        { email }
+      );
+      return rows.length > 0 ? rowToVendor(rows[0]) : null;
+    },
     async listAll({ active, limit = 100 } = {}) {
       if (active === true || active === 1) {
         const rows = await db.query(

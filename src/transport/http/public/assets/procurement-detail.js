@@ -4,7 +4,7 @@
    timeline, items, shortlist, RFQ, comparison), handles actions.
    ============================================================ */
 
-import { renderChrome, loadSettings, applyTheme, toast, relativeTime, absoluteTime, formatMoney, ensureRates } from "./chrome.js";
+import { renderChrome, loadSettings, applyTheme, toast, relativeTime, absoluteTime, dateTimeShort, formatMoney, ensureRates } from "./chrome.js";
 import { html, raw, toString } from "./html.js";
 
 /* ---------- Constants ---------- */
@@ -171,13 +171,6 @@ const renderActions = () => {
     `);
   }
 
-  // Duplicate — available on any PR
-  btns.push(html`
-    <button type="button" class="btn btn-outline-secondary" data-action="duplicate">
-      <i class="bi bi-copy me-1"></i>Duplicate
-    </button>
-  `);
-
   // Reprocess — available on processing/completed/failed (not draft/pending_approval)
   if (["processing", "pending", "completed", "failed"].includes(pr.status)) {
     btns.push(html`
@@ -209,8 +202,17 @@ const renderTimeline = () => {
     return;
   }
 
+  // Drop any same-status "transitions" — those are side-effect rows
+  // (e.g. "sourcing task queued") that older versions wrote to the
+  // status_log. Keep the audit clean by hiding them client-side too.
+  const filtered = timeline.filter((entry) => {
+    const to = entry.toStatus || entry.to_status || entry.status || "";
+    const from = entry.fromStatus || entry.from_status || null;
+    return !from || from !== to;
+  });
+
   // Newest first for visual scanning
-  const ordered = [...timeline].reverse();
+  const ordered = [...filtered].reverse();
 
   el.innerHTML = toString(html`
     <div class="tb-timeline">
@@ -235,6 +237,10 @@ const renderTimeline = () => {
                   <i class="bi ${STATUS_ICONS[to] || "bi-circle"}"></i>
                   ${statusLabel(to)}
                 </span>
+                <span class="tb-mono small text-body-secondary" title="${absoluteTime(ts)}">
+                  ${dateTimeShort(ts)}
+                </span>
+                <span class="small text-body-secondary">·</span>
                 ${relativeSpan(ts)}
               </div>
               ${actor ? html`<div class="small text-body-secondary mt-1"><i class="bi bi-person me-1"></i>${actor}</div>` : ""}
@@ -418,65 +424,62 @@ const renderRfqStatus = () => {
     return;
   }
 
+  // Map line-item id → human label for resolving lineItemIds on each RFx.
+  const itemMap = new Map((pr.lineItems || []).map((i) => [i.id, i]));
+  const itemLabel = (id) => {
+    const it = itemMap.get(id);
+    if (!it) return `#${id}`;
+    return `${it.materialName}${it.quantity ? ` (${it.quantity} ${it.unit || ""})` : ""}`;
+  };
+
   el.innerHTML = toString(html`
-    <div class="table-responsive">
-      <table class="table table-sm align-middle mb-0">
-        <thead>
-          <tr>
-            <th scope="col">Vendor</th>
-            <th scope="col">Email</th>
-            <th scope="col">Status</th>
-            <th scope="col">Sent</th>
-            <th scope="col">Responded</th>
-            <th scope="col" class="text-end">RFx</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${rfxList.map((r) => {
-            const rfxId = r.id || r.rfxId || r.rfx_id;
-            const vendorName = vendorNameFromShortlist(r.vendorId || r.vendor_id) || "Unknown vendor";
-            const email = r.toEmail || r.to_email || r.email || "--";
-            const status = r.status || "pending";
-            const sentAt = r.sentAt ?? r.sent_at;
-            const respondedAt = r.repliedAt ?? r.responded_at ?? r.replied_at;
-            return html`
-              <tr>
-                <td>${vendorName}</td>
-                <td class="tb-mono small">${email}</td>
-                <td>
-                  <span class="tb-rfq-indicator tb-rfq-indicator-${status}">
-                    ${statusLabel(status)}
-                  </span>
-                </td>
-                <td>${relativeSpan(sentAt)}</td>
-                <td>${relativeSpan(respondedAt)}</td>
-                <td class="text-end">
-                  <div class="btn-group btn-group-sm" role="group">
-                    <button type="button" class="btn btn-outline-secondary"
-                            data-rfx-payload="${rfxId}"
-                            title="Show payload sent to mail service">
-                      <i class="bi bi-braces"></i>
-                    </button>
-                    <a class="btn btn-outline-primary"
-                       href="${rfxExternalUrl(rfxId)}"
-                       target="_blank" rel="noopener noreferrer"
-                       title="Open RFx in mail app">
-                      <i class="bi bi-box-arrow-up-right me-1"></i>Open
-                    </a>
-                  </div>
-                </td>
-              </tr>
-              <tr class="d-none" data-rfx-payload-row="${rfxId}">
-                <td colspan="6">
-                  <div class="tb-rfx-payload-panel" id="rfx-payload-${rfxId}">
-                    <div class="small text-body-secondary">Loading…</div>
-                  </div>
-                </td>
-              </tr>
-            `;
-          })}
-        </tbody>
-      </table>
+    <div class="tb-rfx-vendor-list">
+      ${rfxList.map((r) => {
+        const rfxId = r.id || r.rfxId || r.rfx_id;
+        const vendorName = vendorNameFromShortlist(r.vendorId || r.vendor_id) || "Unknown vendor";
+        const email = r.toEmail || r.to_email || r.email || "--";
+        const status = r.status || "pending";
+        const sentAt = r.sentAt ?? r.sent_at;
+        const respondedAt = r.repliedAt ?? r.responded_at ?? r.replied_at;
+        const lineItemIds = Array.isArray(r.lineItemIds) ? r.lineItemIds
+                          : (Array.isArray(r.line_item_ids) ? r.line_item_ids : []);
+        return html`
+          <div class="tb-rfx-vendor-card" data-rfx-id="${rfxId}">
+            <div class="tb-rfx-vendor-head">
+              <div class="tb-rfx-vendor-name">
+                <i class="bi bi-building text-body-secondary"></i>
+                <span class="fw-semibold">${vendorName}</span>
+                <span class="tb-mono small text-body-secondary">${email}</span>
+              </div>
+              <div class="tb-rfx-vendor-meta">
+                <span class="tb-rfq-indicator tb-rfq-indicator-${status}">${statusLabel(status)}</span>
+                <span class="small text-body-secondary"><i class="bi bi-send me-1"></i>${relativeSpan(sentAt)}</span>
+                <span class="small text-body-secondary"><i class="bi bi-reply me-1"></i>${relativeSpan(respondedAt)}</span>
+                <button type="button" class="btn btn-sm btn-outline-secondary"
+                        data-rfx-payload="${rfxId}" title="Show payload">
+                  <i class="bi bi-braces"></i>
+                </button>
+                <a class="btn btn-sm btn-outline-primary"
+                   href="${rfxExternalUrl(rfxId)}" target="_blank" rel="noopener noreferrer"
+                   title="Open RFx in mail app">
+                  <i class="bi bi-box-arrow-up-right me-1"></i>Open
+                </a>
+              </div>
+            </div>
+            ${lineItemIds.length > 0 ? html`
+              <div class="tb-rfx-vendor-items">
+                <span class="tb-section-label">Items requested</span>
+                <ul class="tb-rfx-items-list">
+                  ${lineItemIds.map((id) => html`<li><i class="bi bi-box me-1 text-body-secondary"></i>${itemLabel(id)}</li>`)}
+                </ul>
+              </div>
+            ` : ""}
+            <div class="d-none tb-rfx-payload-panel" data-rfx-payload-row="${rfxId}" id="rfx-payload-${rfxId}">
+              <div class="small text-body-secondary">Loading…</div>
+            </div>
+          </div>
+        `;
+      })}
     </div>
   `);
 };
@@ -807,10 +810,21 @@ const handleAction = async (action) => {
 
   try {
     switch (action) {
-      case "approve":
-        await api(`/api/procurement/prs/${id}/approve`, { method: "POST" });
+      case "approve": {
+        // Service requires approvedBy as a non-empty string. Pull from
+        // the current session, fall back to "admin" for the demo.
+        let approvedBy = "admin";
+        try {
+          const me = await fetch("/api/auth/me").then((r) => r.ok ? r.json() : null);
+          if (me?.username) approvedBy = me.username;
+        } catch {}
+        await api(`/api/procurement/prs/${id}/approve`, {
+          method: "POST",
+          body: JSON.stringify({ approvedBy }),
+        });
         toast("PR approved");
         break;
+      }
 
       case "reject": {
         const modal = document.getElementById("pr-reject-modal");
@@ -829,13 +843,6 @@ const handleAction = async (action) => {
         await api(`/api/procurement/prs/${id}/cancel`, { method: "POST" });
         toast("PR cancelled");
         break;
-
-      case "duplicate": {
-        const dup = await api(`/api/procurement/prs/${id}/duplicate`, { method: "POST" });
-        toast("PR duplicated as draft");
-        window.location.href = `/procurement-detail.html?id=${dup.id}`;
-        return;
-      }
 
       case "reprocess":
         if (!confirm("Reset this PR and re-run sourcing? Items will be reset to draft.")) return;

@@ -2,6 +2,8 @@ node_modules
 data
 .git
 *.md
+!CHANGELOG.md
+!README.md
 tests
 .claude
 .env

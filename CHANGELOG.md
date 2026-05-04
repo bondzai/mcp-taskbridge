@@ -5,6 +5,246 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.4.9] — 2026-04-30
+
+### Changed
+
+- **Domain badge — neutral white-smoke tone.** Dropped the per-domain
+  colored variants (pharma purple, construction amber, etc.). Single
+  base style now uses `--tb-surface-alt` background, `--tb-muted` text,
+  `--tb-border` outline — clean, theme-aware, no overrides per domain.
+
+## [1.4.8] — 2026-04-30
+
+### Added
+
+- **Domain badge** on each Purchase History row. Mock-history entries
+  now carry a `domain` field (`construction`, `electrical`, `plumbing`,
+  `facilities`, `safety`, `pharma`) rendered as a small uppercase pill
+  next to the title. Per-domain accent (subtle muted hue) keyed by a
+  single `.tb-domain-<name>` CSS class — DRY, theme-aware (light/dim/
+  dark variants), no JS lookup required.
+
+## [1.4.7] — 2026-04-30
+
+### Demo data
+
+- Added 5 pharmaceutical-domain entries to `MOCK_HISTORY` (Thai
+  context):
+  - APIs (Paracetamol, Amoxicillin, Metformin) — ไทยเอพีไอ / Siam Bioscience
+  - Primary packaging (vials, ampoules, stoppers) — GlassPack Asia / Thai Glass
+  - Excipients (MCC, lactose, mag stearate) — Bangkok Pharma Excipients
+  - QC reagents & reference standards — Merck Thailand / LabKit Asia
+  - Blister packaging — Thai Blister Pack / PrintPack BKK
+
+  Visible on `/history.html` after the next deploy.
+
+## [1.4.6] — 2026-04-30
+
+### Fixed
+
+- **PR detail page header bleed-through.** The header was sticky at
+  `top: 48px` but the navbar's actual height is ~52px, leaving a
+  4-pixel sliver where scrolled content showed above the header.
+  Dropped the sticky behavior — short header, used once per page,
+  matches the other pages.
+
+### Demo data
+
+- 4 pharmaceutical-domain mock PRs seeded to prod via the existing
+  `bin/mock-prs.js --llm --industry "..."` CLI: APIs, packaging
+  materials, QC reagents, excipients — Thai-context vendor names where
+  natural.
+
+## [1.4.5] — 2026-04-30
+
+### Fixed
+
+- **Bogus `pending → pending` row in timeline.** `startSourcing` was
+  writing a status-log entry with `from === to` to record "sourcing
+  task queued" — useful trace, but it rendered as a confusing
+  same-status "transition" in the History tab. Removed the redundant
+  log write; the underlying `transition()` still updates
+  `sourcing_task_id`. Also added a client-side filter so existing rows
+  in the DB are hidden from the timeline.
+
+## [1.4.4] — 2026-04-30
+
+### Fixed
+
+- **Processing badge spin in history/system timeline.** The 1.4.3 fix
+  only covered `.tb-pill-in_progress`, but procurement status pills use
+  the separate `.tb-pill-processing` class (with its own `bi-arrow-
+  repeat` spinner rule) — so historical "→ processing" entries kept
+  spinning. Selector now covers every animated pill class
+  (`.tb-pill-processing`, `.tb-pill-awaiting_reply`,
+  `.tb-pill-rfx_in_progress`, `.tb-pill-in_progress`) and adds
+  `!important` so it wins specificity battles with the per-class spin
+  rules.
+
+## [1.4.3] — 2026-04-30
+
+### Fixed
+
+- **Status timeline — historical "in_progress" pills no longer animate.**
+  The pulse + spinner was global to `.tb-pill-in_progress`, so older
+  entries kept moving even though the status was no longer current.
+  Animations are now scoped to `.tb-timeline-item-latest` only.
+- **Vendor pageSize / view reset bug.** Clicking *Deactivate* (or
+  anything that triggered a `loadVendors()` re-render) reset pageSize
+  back to 10 and view back to "list" — `renderToolbar()` was reading
+  from a `persisted` snapshot captured at init, then overwriting the
+  current state on every render. Replaced with init-only defaults so
+  state survives re-renders.
+
+### Changed
+
+- **Default currency reverted to USD** (was THB in 1.3.6). Existing
+  user choices in `localStorage` are still respected.
+
+## [1.4.2] — 2026-04-30
+
+### Removed
+
+- **Duplicate PR** feature dropped — button on PR detail page, the
+  `POST /api/procurement/prs/:id/duplicate` route, and
+  `service.duplicatePr()`. Use the new **Import** flow if you need to
+  copy a PR.
+
+### Changed
+
+- **PR list — Delete is now an icon-only button** on the right side of
+  each card's action row. Compact red-tinted `tb-icon-btn-danger`
+  variant for the trash icon, light hover state, theme-aware
+  (red `#cf222e` light / `#e5534b` dark/dim). Pushed right via
+  `ms-auto` so it sits opposite the Approve/Reject/Edit cluster.
+
+## [1.4.1] — 2026-04-30
+
+### Fixed
+
+- **`CHANGELOG.md not found` on prod** — `.dockerignore` excluded
+  `*.md`, so the file never reached the Cloud Run image. Whitelisted
+  `CHANGELOG.md` and `README.md` (`!CHANGELOG.md`, `!README.md`) so the
+  changelog modal renders properly after the next deploy.
+
+### Changed
+
+- **PR detail tab** "System" renamed to **History**.
+- **Changelog modal** — removed the "Raw" button (the same content is
+  rendered as Markdown right above; no need for a second link).
+
+## [1.4.0] — 2026-04-30
+
+### Changed
+
+- **PR detail tabs reorganized** to match the natural read order:
+  - **Summary** (new) — Agent Sourcing Report on top, Vendor Shortlist
+    underneath (deduped per vendor).
+  - **Items** — line-item table.
+  - **RFx** — now a card per vendor showing **the items requested
+    inside that RFx** (line-item names + quantities), the status,
+    timestamps, payload + Open buttons. Replaces the flat table.
+  - **System** — debug/audit drawer: Status Timeline, Quote Comparison,
+    Agent Debug Log. Subsumes the old Quotes tab and pulls Timeline
+    out of the front-of-house tabs.
+- The old **Sourcing** and **Quotes** tabs are gone (their contents now
+  live under Summary and System respectively).
+
+### Fixed
+
+- **Vendor dedup on AI sourcing** — when the agent submits a `vendor`
+  object whose email matches an existing vendor row, the system now
+  reuses that row (case-insensitive email lookup) instead of creating
+  a near-duplicate. Logged in the debug log as `vendor_dedup_hit`.
+  New repo method `vendors.getByEmail()`.
+
+## [1.3.6] — 2026-04-30
+
+### Changed
+
+- **Default currency is now THB** (was USD). New users land on THB; users
+  who already chose a currency keep it (`localStorage` preserved).
+- **List controls: shared "Clear" button** appears in the toolbar
+  whenever search / filters / sort differ from defaults. One click
+  resets to the first-option filter values, default sort, and empty
+  search. Doesn't touch view mode or page size (those stay as user
+  preference). Same component is reused on Dashboard, Vendors, and
+  Purchase History — so the affordance is consistent everywhere.
+- Default PR sort confirmed as **Recently updated** (from 1.3.4); the
+  Clear button is the easy escape for users still on the old "newest"
+  preference saved before the change.
+
+## [1.3.5] — 2026-04-30
+
+### Changed
+
+- **Timeline timestamps now include seconds** — `2026/04/29 09:04:57`.
+- **`/api/config.version` is now live** — reads `package.json` on each
+  request instead of freezing the value at boot. Lets bumps propagate
+  without a manual restart.
+- **`make dev` enables hot-reload** via `node --watch` on `src/`, `bin/`,
+  and `package.json`. The web process auto-restarts on edits, so the
+  version badge (and everything else) reflects local changes in seconds.
+
+## [1.3.4] — 2026-04-30
+
+### Changed
+
+- **Status timeline shows absolute time** in `YYYY/MM/DD HH:MM` format
+  alongside the relative "5 min ago". Easier to scan across days.
+  New `dateTimeShort()` helper in `chrome.js`.
+- **Default PR sort** is now **Recently updated** (was Newest first).
+  Sort menu reorders so it sits at the top.
+- **Purchase history is now an accordion.** Each PR row collapses by
+  default, showing title + completion date + item count + vendors +
+  total. Click to expand the full per-item table. Native `<details>`
+  for accessibility — no JS for the toggle.
+
+## [1.3.3] — 2026-04-30
+
+### Fixed
+
+- **Approve button on PR detail page** posted no body, so the server
+  rejected with `approved_by must be a string`. Now reads the current
+  user from `/api/auth/me` and sends `{approvedBy}`.
+- **Stat-card filter** clicked once but acted N times. `renderStats()`
+  was attaching a fresh click listener every render — listeners stacked
+  up and toggled the active phase repeatedly. Bound once at boot.
+- **Vendors page "Invalid Date"** in prod. `created_at` from Postgres
+  BIGINT comes back as a string; `new Date("1773…")` returned NaN.
+  Centralized `formatDate()` coerces to `Number()` and guards against
+  NaN before formatting.
+
+### Changed
+
+- **Vendor list redesigned** more compact and minimal — single-row
+  header (name · email · categories · lead-time · materials count ·
+  added-on) with icon-button actions on the right and an overflow
+  dropdown for activate/deactivate. Less padding, less visual noise.
+  New CSS class `.tb-vendor-row` (and `.tb-pill-info` shared with the
+  AI-sourced badge).
+
+## [1.3.2] — 2026-04-30
+
+### Changed
+
+- Brand mark redesigned in **red & white** — a `#dc2626` rounded square
+  with a white shopping-cart glyph (Bootstrap-icons `cart3` path embedded
+  inline). Replaces the bare 🛒 emoji so the colors render the same on
+  every OS / theme. `.tb-mark` (1.4em) for inline use, `.tb-mark-lg` for
+  the login screen, and the navbar `.tb-logo` shares the same look.
+  Favicons regenerated to match.
+
+## [1.3.1] — 2026-04-30
+
+### Changed
+
+- Brand styling aligned with the procurement-mail service. Logo is now
+  the 🛒 emoji (sibling to mail's 📮), brand string is `procurement-core`.
+  Inline-SVG favicon added to every HTML page, matching the mail-service
+  pattern (no asset files needed).
+
 ## [1.3.0] — 2026-04-29
 
 ### Added

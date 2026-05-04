@@ -145,6 +145,24 @@ export const absoluteTime = (ms) => {
   }
 };
 
+/**
+ * Compact absolute timestamp `YYYY/MM/DD HH:MM:SS` — used in the
+ * status timeline so events have a stable, scannable time stamp
+ * (relative time is fuzzy across days).
+ *
+ * Coerces numeric strings (Postgres BIGINT comes back as a string)
+ * so `new Date(...)` doesn't return Invalid Date.
+ */
+export const dateTimeShort = (ms) => {
+  if (ms == null) return "—";
+  const n = typeof ms === "number" ? ms : Number(ms);
+  if (!Number.isFinite(n) || n <= 0) return "—";
+  const d = new Date(n);
+  if (isNaN(d.getTime())) return "—";
+  const pad = (x) => String(x).padStart(2, "0");
+  return `${d.getFullYear()}/${pad(d.getMonth() + 1)}/${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+};
+
 /* ---------- Public config ---------- */
 
 let _publicConfigPromise = null;
@@ -192,8 +210,8 @@ export const renderChrome = ({ pendingCount = 0 } = {}) => {
     <nav class="tb-navbar">
       <div class="container d-flex align-items-center gap-3">
         <a class="navbar-brand" href="/">
-          <span class="tb-logo"><i class="bi bi-cart3"></i></span>
-          <span>Procurement Agent</span>
+          <span class="tb-logo" aria-hidden="true"></span>
+          <span>procurement-core</span>
           <button type="button" class="tb-version-badge" id="tb-version-badge" title="View changelog">
             <span id="tb-version-label">v…</span>
           </button>
@@ -423,9 +441,6 @@ const ensureChangelogModal = () => {
             </div>
           </div>
           <div class="modal-footer">
-            <a href="/api/changelog" target="_blank" rel="noreferrer" class="btn btn-sm btn-outline-secondary me-auto">
-              <i class="bi bi-file-earmark-text me-1"></i>Raw
-            </a>
             <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Close</button>
           </div>
         </div>

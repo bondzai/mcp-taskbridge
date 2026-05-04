@@ -2,7 +2,7 @@
    Purchase History — completed PRs grouped as cards.
    ============================================================ */
 
-import { renderChrome, loadSettings, applyTheme, toast, relativeTime, absoluteTime } from "./chrome.js";
+import { renderChrome, loadSettings, applyTheme, toast, relativeTime, absoluteTime, dateTimeShort } from "./chrome.js";
 import { html, toString } from "./html.js";
 import { createListControls } from "./list-controls.js";
 
@@ -86,48 +86,52 @@ const paged = () => {
 const historyCard = (pr) => {
   const total = fmtTotal(pr.items);
   const vendors = [...new Set(pr.items.map((i) => i.vendorName).filter(Boolean))];
+  const domain = pr.domain || null;
 
+  // Collapsed by default. Native <details> is accessible + needs no JS.
   return html`
-    <div class="tb-history-card">
-      <div class="tb-history-card-header">
-        <div>
-          <div class="tb-history-card-title">${pr.prTitle}</div>
-          <div class="tb-history-card-meta">
-            <span title="${absoluteTime(pr.completedAt)}">
-              <i class="bi bi-check-circle me-1 text-success"></i>${relativeTime(pr.completedAt)}
-            </span>
-            <span><i class="bi bi-box me-1"></i>${pr.items.length} item${pr.items.length !== 1 ? "s" : ""}</span>
-            ${vendors.length > 0 ? html`<span><i class="bi bi-building me-1"></i>${vendors.join(", ")}</span>` : ""}
-            ${total ? html`<span class="fw-semibold"><i class="bi bi-currency-dollar me-1"></i>${total}</span>` : ""}
-          </div>
-        </div>
-        <span class="tb-mono small text-body-secondary">#${(pr.prId || "").slice(0, 8)}</span>
-      </div>
-      <table class="tb-history-table">
-        <thead>
-          <tr>
-            <th>Material</th>
-            <th class="text-end">Qty</th>
-            <th>Vendor</th>
-            <th class="text-end">Unit Price</th>
-            <th class="text-end">Total</th>
-            <th class="text-end">Lead</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${pr.items.map((i) => html`
+    <details class="tb-history-acc">
+      <summary class="tb-history-acc-summary">
+        <i class="bi bi-chevron-right tb-history-acc-chevron"></i>
+        <span class="tb-history-acc-title text-truncate">${pr.prTitle}</span>
+        ${domain ? html`<span class="tb-domain-badge tb-domain-${domain}">${domain}</span>` : ""}
+        <span class="tb-history-acc-meta">
+          <span class="text-body-secondary small" title="${absoluteTime(pr.completedAt)}">
+            <i class="bi bi-check-circle me-1 text-success"></i>${dateTimeShort(pr.completedAt)}
+          </span>
+          <span class="text-body-secondary small"><i class="bi bi-box me-1"></i>${pr.items.length}</span>
+          ${vendors.length > 0 ? html`<span class="text-body-secondary small text-truncate" title="${vendors.join(', ')}"><i class="bi bi-building me-1"></i>${vendors.length} vendor${vendors.length !== 1 ? 's' : ''}</span>` : ""}
+          ${total ? html`<span class="fw-semibold tb-mono">${total}</span>` : ""}
+        </span>
+        <span class="tb-mono small text-body-secondary tb-history-acc-id">#${(pr.prId || "").slice(0, 8)}</span>
+      </summary>
+      <div class="tb-history-acc-body">
+        <table class="tb-history-table">
+          <thead>
             <tr>
-              <td>${i.materialName}</td>
-              <td class="text-end tb-mono">${i.quantity} ${i.unit || ""}</td>
-              <td>${i.vendorName || "—"}</td>
-              <td class="text-end tb-mono">${fmtPrice(i.unitPrice, i.currency)}</td>
-              <td class="text-end tb-mono">${i.unitPrice && i.quantity ? fmtPrice(i.unitPrice * i.quantity, i.currency) : "—"}</td>
-              <td class="text-end">${i.leadTimeDays != null ? `${i.leadTimeDays}d` : "—"}</td>
+              <th>Material</th>
+              <th class="text-end">Qty</th>
+              <th>Vendor</th>
+              <th class="text-end">Unit Price</th>
+              <th class="text-end">Total</th>
+              <th class="text-end">Lead</th>
             </tr>
-          `)}
-        </tbody>
-      </table>
-    </div>
+          </thead>
+          <tbody>
+            ${pr.items.map((i) => html`
+              <tr>
+                <td>${i.materialName}</td>
+                <td class="text-end tb-mono">${i.quantity} ${i.unit || ""}</td>
+                <td>${i.vendorName || "—"}</td>
+                <td class="text-end tb-mono">${fmtPrice(i.unitPrice, i.currency)}</td>
+                <td class="text-end tb-mono">${i.unitPrice && i.quantity ? fmtPrice(i.unitPrice * i.quantity, i.currency) : "—"}</td>
+                <td class="text-end">${i.leadTimeDays != null ? `${i.leadTimeDays}d` : "—"}</td>
+              </tr>
+            `)}
+          </tbody>
+        </table>
+      </div>
+    </details>
   `;
 };
 

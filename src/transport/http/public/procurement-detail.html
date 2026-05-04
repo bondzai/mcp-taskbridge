@@ -2,6 +2,7 @@
 <html lang="en" data-bs-theme="dark">
   <head>
     <meta charset="utf-8" />
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;utf8,<svg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 16 16%27><rect width=%2716%27 height=%2716%27 rx=%274%27 fill=%27%23dc2626%27/><g transform=%27translate(2,2) scale(0.75)%27 fill=%27white%27><path d=%27M0 1.5A.5.5 0 0 1 .5 1H2a.5.5 0 0 1 .485.379L2.89 3H14.5a.5.5 0 0 1 .49.598l-1 5a.5.5 0 0 1-.465.401l-9.397.472L4.415 11H13a.5.5 0 0 1 0 1H4a.5.5 0 0 1-.491-.408L2.01 3.607 1.61 2H.5a.5.5 0 0 1-.5-.5zM3.102 4l.84 4.479 9.144-.459L13.89 4H3.102zM5 12a2 2 0 1 0 0 4 2 2 0 0 4zm7 0a2 2 0 1 0 0 4 2 2 0 0 4zm-7 1a1 1 0 1 1 0 2 1 1 0 0 1 0-2zm7 0a1 1 0 1 1 0 2 1 1 0 0 1 0-2z%27/></g></svg>" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <meta name="color-scheme" content="light dark" />
     <title>Procurement Agent — PR Detail</title>
@@ -17,7 +18,7 @@
       <div class="container" style="max-width: 960px;">
         <header class="tb-page-header tb-sticky-header">
           <div>
-            <h1 id="tb-page-title"><i class="bi bi-cart3 me-2" aria-hidden="true"></i>Purchase Request</h1>
+            <h1 id="tb-page-title"><span class="tb-mark me-2" aria-hidden="true"></span>Purchase Request</h1>
             <p id="pr-subtitle" class="mb-0 text-body-secondary">Loading...</p>
           </div>
           <a href="/" class="btn btn-outline-secondary btn-sm">
@@ -54,18 +55,25 @@
 
           <!-- Tab navigation -->
           <div class="tb-tabs" role="tablist" aria-label="PR sections">
-            <button class="tb-tab active" role="tab" aria-selected="true" data-tab="timeline">Timeline</button>
+            <button class="tb-tab active" role="tab" aria-selected="true" data-tab="summary">Summary</button>
             <button class="tb-tab" role="tab" aria-selected="false" data-tab="items">Items</button>
-            <button class="tb-tab" role="tab" aria-selected="false" data-tab="sourcing">Sourcing</button>
             <button class="tb-tab" role="tab" aria-selected="false" data-tab="rfq">RFx</button>
-            <button class="tb-tab" role="tab" aria-selected="false" data-tab="quotes">Quotes</button>
+            <button class="tb-tab" role="tab" aria-selected="false" data-tab="system">History</button>
           </div>
 
           <!-- Tab panels -->
-          <div class="tb-tab-panel active" id="panel-timeline" role="tabpanel">
-            <section id="pr-timeline-section" class="tb-submit-card" aria-label="Status timeline">
-              <div class="tb-section-label mb-2">Status Timeline</div>
-              <div id="pr-timeline"></div>
+          <div class="tb-tab-panel active" id="panel-summary" role="tabpanel">
+            <section class="tb-submit-card" aria-label="Agent report">
+              <div class="tb-section-label mb-2">
+                <i class="bi bi-robot me-1"></i>Agent Sourcing Report
+                <span class="text-body-secondary fw-normal small ms-2">— full markdown result from submit_result</span>
+              </div>
+              <div id="pr-agent-result"></div>
+            </section>
+
+            <section id="pr-shortlist-section" class="tb-submit-card" aria-label="Vendor shortlist">
+              <div class="tb-section-label mb-2">Vendor Shortlist</div>
+              <div id="pr-shortlist"></div>
             </section>
           </div>
 
@@ -76,38 +84,28 @@
             </section>
           </div>
 
-          <div class="tb-tab-panel" id="panel-sourcing" role="tabpanel">
-            <section id="pr-shortlist-section" class="tb-submit-card" aria-label="Vendor shortlist">
-              <div class="tb-section-label mb-2">Vendor Shortlist</div>
-              <div id="pr-shortlist"></div>
-            </section>
-          </div>
-
           <div class="tb-tab-panel" id="panel-rfq" role="tabpanel">
             <section id="pr-rfq-section" class="tb-submit-card" aria-label="RFx status">
-              <div class="tb-section-label mb-2">RFx Status</div>
+              <div class="tb-section-label mb-2">RFx — items per vendor</div>
               <div id="pr-rfq-status"></div>
             </section>
           </div>
 
-          <div class="tb-tab-panel" id="panel-quotes" role="tabpanel">
+          <div class="tb-tab-panel" id="panel-system" role="tabpanel">
+            <section id="pr-timeline-section" class="tb-submit-card" aria-label="Status timeline">
+              <div class="tb-section-label mb-2">Status Timeline</div>
+              <div id="pr-timeline"></div>
+            </section>
+
             <section id="pr-comparison-section" class="tb-submit-card" aria-label="Quote comparison">
               <div class="tb-section-label mb-2">Quote Comparison</div>
               <div id="pr-comparison"></div>
             </section>
 
-            <section class="tb-submit-card" aria-label="Agent report">
-              <div class="tb-section-label mb-2">
-                <i class="bi bi-robot me-1"></i>Agent Sourcing Report
-                <span class="text-body-secondary fw-normal small ms-2">— full markdown result from submit_result</span>
-              </div>
-              <div id="pr-agent-result"></div>
-            </section>
-
             <section class="tb-submit-card" aria-label="Agent debug log">
               <div class="tb-section-label mb-2">
                 <i class="bi bi-bug me-1"></i>Agent Debug Log
-                <span class="text-body-secondary fw-normal small ms-2">— captures submit_vendor_shortlist payloads, decision engine output, and email sends</span>
+                <span class="text-body-secondary fw-normal small ms-2">— submit_vendor_shortlist payloads, decision engine output, email sends</span>
               </div>
               <div id="pr-debug-log"></div>
             </section>

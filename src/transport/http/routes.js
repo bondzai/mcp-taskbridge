@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import express from "express";
 import multer from "multer";
@@ -162,12 +163,21 @@ export const createRoutes = ({
   });
 
   router.get("/api/config", (req, res) => {
+    // Resolve version live from package.json so a `make dev` (or any
+    // running container) reflects bumps without a manual restart.
+    let liveVersion = publicConfig.version ?? null;
+    if (projectRoot) {
+      try {
+        const pkg = JSON.parse(readFileSync(path.join(projectRoot, "package.json"), "utf8"));
+        if (pkg?.version) liveVersion = pkg.version;
+      } catch { /* fall back to boot value */ }
+    }
     res.json({
       agentId: publicConfig.agentId ?? null,
       webhookUrl: publicConfig.webhookUrl ?? null,
       webHost: publicConfig.webHost ?? null,
       webPort: publicConfig.webPort ?? null,
-      version: publicConfig.version ?? null,
+      version: liveVersion,
       rfxExternalBaseUrl: publicConfig.rfxExternalBaseUrl ?? null,
       llmConfigured: Boolean(publicConfig.llmConfigured),
     });

@@ -343,7 +343,8 @@ export const createProcurementService = ({ repos, events, taskService }) => {
       // Stay "approved" — PR is now in the sourcing queue.
       // Moves to "processing" when the agent claims the task.
       await purchaseRequests.transition(id, PrStatus.PENDING, PrStatus.PENDING, { sourcingTaskId: task?.id ?? null });
-      await statusLog.insert(id, PrStatus.PENDING, PrStatus.PENDING, "system", "Sourcing task queued");
+      // No status_log entry here — same-status updates are side-effects
+      // (sourcing_task_id), not transitions. Keep the audit trail clean.
 
       await emit(ProcurementEvents.PR_SOURCING_STARTED, { ...pr, sourcingTaskId: task?.id ?? null, task });
       return { pr: await mustExistPr(id), task };
@@ -397,6 +398,14 @@ export const createProcurementService = ({ repos, events, taskService }) => {
         const v = entry.vendor;
         if (!v.name || !v.email) {
           throw new ValidationError("new vendor must have name and email");
+        }
+        // Dedup by email — if the agent rediscovers an existing vendor we
+        // reuse the row instead of creating a near-duplicate.
+        const existing = vendors.getByEmail ? await vendors.getByEmail(v.email) : null;
+        if (existing) {
+          entry.vendorId = existing.id;
+          debugLog.add(prId, "vendor_dedup_hit", { email: v.email, vendorId: existing.id, name: existing.name });
+          continue;
         }
         // Auto-insert
         const created = await vendors.insert({
@@ -455,28 +464,6 @@ export const createProcurementService = ({ repos, events, taskService }) => {
       });
       await emit(ProcurementEvents.PR_CANCELLED, updated);
       return updated;
-    },
-
-    async duplicatePr(id) {
-      const source = await mustExistPr(id);
-      const items = source.lineItems || await purchaseRequests.getLineItems(id);
-      const cleanItems = items.map(i => ({
-        materialName: i.materialName,
-        specification: i.specification,
-        quantity: i.quantity,
-        unit: i.unit,
-        notes: i.notes,
-      }));
-      let pr;
-      if (cleanItems.length > 0) {
-        pr = await purchaseRequests.insertWithItems(`${source.title} (copy)`, source.requestedBy, source.deadline, source.notes, cleanItems);
-      } else {
-        pr = await purchaseRequests.insert(`${source.title} (copy)`, source.requestedBy, source.deadline, source.notes);
-        pr.lineItems = [];
-      }
-      await statusLog.insert(pr.id, null, PrStatus.PENDING_APPROVAL, "system", `Duplicated from PR ${id}`);
-      await emit(ProcurementEvents.PR_CREATED, pr);
-      return pr;
     },
 
     async reprocessPr(id) {

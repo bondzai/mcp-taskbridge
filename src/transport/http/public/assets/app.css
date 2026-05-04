@@ -155,16 +155,40 @@ code, pre, .tb-mono { font-family: var(--tb-mono); font-variant-numeric: tabular
   color: var(--bs-emphasis-color);
 }
 
-.tb-navbar .navbar-brand .tb-logo {
+/* Brand mark — red square with white cart. Used in the navbar (.tb-logo)
+   and as a standalone mark inline with headings (.tb-mark). One SVG,
+   sized via the host element's width/height. */
+.tb-navbar .navbar-brand .tb-logo,
+.tb-mark {
+  display: inline-grid;
+  place-items: center;
   width: 28px;
   height: 28px;
   border-radius: 8px;
-  background: linear-gradient(135deg, #539bf5, #a371f7);
-  display: grid;
-  place-items: center;
+  background: #dc2626; /* brand red */
   color: white;
-  font-size: 0.9rem;
+  flex-shrink: 0;
+  vertical-align: middle;
+  position: relative;
 }
+.tb-navbar .navbar-brand .tb-logo::before,
+.tb-mark::before {
+  content: "";
+  display: block;
+  width: 70%;
+  height: 70%;
+  background-color: white;
+  -webkit-mask: var(--tb-logo-mask) center / contain no-repeat;
+          mask: var(--tb-logo-mask) center / contain no-repeat;
+}
+:root {
+  /* Bootstrap Icons "cart3" path, embedded inline so we don't depend on
+     the icon font for the brand. White-on-red applied via mask above. */
+  --tb-logo-mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M0 1.5A.5.5 0 0 1 .5 1H2a.5.5 0 0 1 .485.379L2.89 3H14.5a.5.5 0 0 1 .49.598l-1 5a.5.5 0 0 1-.465.401l-9.397.472L4.415 11H13a.5.5 0 0 1 0 1H4a.5.5 0 0 1-.491-.408L2.01 3.607 1.61 2H.5a.5.5 0 0 1-.5-.5zM3.102 4l.84 4.479 9.144-.459L13.89 4H3.102zM5 12a2 2 0 1 0 0 4 2 2 0 0 0 0-4zm7 0a2 2 0 1 0 0 4 2 2 0 0 0 0-4zm-7 1a1 1 0 1 1 0 2 1 1 0 0 1 0-2zm7 0a1 1 0 1 1 0 2 1 1 0 0 1 0-2z'/></svg>");
+}
+
+.tb-mark { width: 1.4em; height: 1.4em; border-radius: 0.3em; }
+.tb-mark-lg { width: 2.6rem; height: 2.6rem; border-radius: 12px; }
 
 .tb-navbar .nav-link {
   color: var(--bs-body-color);
@@ -230,6 +254,28 @@ code, pre, .tb-mono { font-family: var(--tb-mono); font-variant-numeric: tabular
   border-color: rgba(87, 171, 90, 0.45);
   background: rgba(87, 171, 90, 0.12);
   transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+/* Danger variant — used by destructive icon-only actions (e.g. delete PR). */
+.tb-icon-btn-danger {
+  color: #cf222e;
+  width: 30px;
+  height: 30px;
+}
+html[data-theme="dark"] .tb-icon-btn-danger,
+html[data-theme="dim"] .tb-icon-btn-danger {
+  color: #e5534b;
+}
+.tb-icon-btn-danger:hover {
+  background: color-mix(in srgb, #cf222e 12%, transparent);
+  border-color: color-mix(in srgb, #cf222e 40%, var(--tb-border));
+  color: #cf222e;
+}
+html[data-theme="dark"] .tb-icon-btn-danger:hover,
+html[data-theme="dim"] .tb-icon-btn-danger:hover {
+  background: rgba(229, 83, 75, 0.14);
+  border-color: rgba(229, 83, 75, 0.45);
+  color: #e5534b;
 }
 
 /* ---------- Page header ---------- */
@@ -424,6 +470,23 @@ html[data-theme="dim"] .tb-pill-in_progress {
   transform-origin: center;
 }
 
+/* History timeline: an animated status pill on a *historical*
+   (non-latest) entry shouldn't pulse or spin — that status was current
+   at that point in time, but isn't anymore. Only the latest entry stays
+   animated. Covers every pill class that ships with motion today. */
+.tb-timeline-item:not(.tb-timeline-item-latest) .tb-pill-in_progress,
+.tb-timeline-item:not(.tb-timeline-item-latest) .tb-pill-processing,
+.tb-timeline-item:not(.tb-timeline-item-latest) .tb-pill-awaiting_reply,
+.tb-timeline-item:not(.tb-timeline-item-latest) .tb-pill-rfx_in_progress {
+  animation: none !important;
+}
+.tb-timeline-item:not(.tb-timeline-item-latest) .tb-pill-in_progress .bi-arrow-repeat,
+.tb-timeline-item:not(.tb-timeline-item-latest) .tb-pill-processing .bi-arrow-repeat,
+.tb-timeline-item:not(.tb-timeline-item-latest) .tb-pill-awaiting_reply .bi-arrow-repeat,
+.tb-timeline-item:not(.tb-timeline-item-latest) .tb-pill-rfx_in_progress .bi-arrow-repeat {
+  animation: none !important;
+}
+
 @keyframes tb-pulse-pill {
   0%, 100% { box-shadow: 0 0 0 0 rgba(83, 155, 245, 0.0); }
   50%      { box-shadow: 0 0 0 6px rgba(83, 155, 245, 0.10); }
@@ -455,6 +518,18 @@ html[data-theme="dim"] .tb-pill-failed {
   color: #e5534b;
   background: rgba(229, 83, 75, 0.12);
   border-color: rgba(229, 83, 75, 0.35);
+}
+
+.tb-pill-info {
+  color: #0969da;
+  background: #ddf4ff;
+  border-color: #54aeff55;
+}
+html[data-theme="dark"] .tb-pill-info,
+html[data-theme="dim"] .tb-pill-info {
+  color: #6cb6ff;
+  background: rgba(108, 182, 255, 0.14);
+  border-color: rgba(108, 182, 255, 0.35);
 }
 
 .tb-pill-archived {
@@ -767,7 +842,167 @@ html[data-theme="dim"] .tb-pill-failed {
   overflow: hidden;
 }
 
-/* ---------- History cards ---------- */
+/* ---------- RFx tab — vendor cards with items inside ---------- */
+.tb-rfx-vendor-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.tb-rfx-vendor-card {
+  background: var(--tb-surface);
+  border: 1px solid var(--tb-border);
+  border-radius: var(--tb-radius);
+  padding: 12px 14px;
+}
+.tb-rfx-vendor-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) auto;
+  gap: 12px;
+  align-items: center;
+}
+.tb-rfx-vendor-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.tb-rfx-vendor-name > .tb-mono {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.tb-rfx-vendor-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.tb-rfx-vendor-items {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--tb-border);
+}
+.tb-rfx-items-list {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.tb-rfx-items-list li {
+  font-size: 0.85rem;
+  color: var(--bs-body-color);
+}
+.tb-rfx-payload-panel:not(.d-none) {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--tb-border);
+}
+
+@media (max-width: 760px) {
+  .tb-rfx-vendor-head { grid-template-columns: 1fr; }
+  .tb-rfx-vendor-meta { justify-content: flex-start; }
+}
+
+/* ---------- History accordion ---------- */
+
+.tb-history-acc {
+  background: var(--tb-surface);
+  border: 1px solid var(--tb-border);
+  border-radius: var(--tb-radius);
+  overflow: hidden;
+  margin-bottom: 6px;
+  transition: border-color 0.12s ease;
+}
+.tb-history-acc[open] {
+  border-color: color-mix(in srgb, var(--tb-accent) 35%, var(--tb-border));
+}
+.tb-history-acc-summary {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1.5fr) auto minmax(0, 2fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+
+/* Domain badge — single neutral white-smoke pill. The *content* is the
+   signal; no per-domain accent. Theme-aware via tokens, no overrides. */
+.tb-domain-badge {
+  display: inline-block;
+  padding: 1px 8px;
+  font-size: 0.7rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  border-radius: var(--tb-radius-pill);
+  background: var(--tb-surface-alt);
+  color: var(--tb-muted);
+  border: 1px solid var(--tb-border);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.tb-history-acc-summary::-webkit-details-marker { display: none; }
+.tb-history-acc-summary::marker { display: none; content: ""; }
+.tb-history-acc-summary:hover {
+  background: var(--tb-surface-alt);
+}
+.tb-history-acc-chevron {
+  font-size: 0.85rem;
+  color: var(--tb-muted);
+  transition: transform 0.18s ease;
+}
+.tb-history-acc[open] .tb-history-acc-chevron {
+  transform: rotate(90deg);
+}
+.tb-history-acc-title {
+  font-weight: 600;
+  min-width: 0;
+}
+.tb-history-acc-meta {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+  flex-wrap: nowrap;
+  overflow: hidden;
+}
+.tb-history-acc-meta > * {
+  flex-shrink: 0;
+}
+.tb-history-acc-meta > .text-truncate {
+  flex-shrink: 1;
+  min-width: 0;
+}
+.tb-history-acc-id { white-space: nowrap; }
+.tb-history-acc-body {
+  border-top: 1px solid var(--tb-border);
+  padding: 12px 14px;
+  background: var(--tb-surface-alt);
+  animation: tb-history-acc-open 0.18s ease;
+}
+@keyframes tb-history-acc-open {
+  from { opacity: 0; transform: translateY(-2px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@media (max-width: 760px) {
+  .tb-history-acc-summary {
+    grid-template-columns: 16px 1fr auto auto;
+  }
+  .tb-history-acc-meta {
+    grid-column: 1 / -1;
+    flex-wrap: wrap;
+  }
+  .tb-domain-badge { font-size: 0.65rem; }
+}
+
+/* ---------- History cards (legacy / kept) ---------- */
 
 .tb-history-card {
   background: var(--tb-surface);
@@ -1957,8 +2192,12 @@ html[data-theme="dim"] .tb-login-card {
 }
 .tb-pr-card-actions {
   display: flex;
+  align-items: center;
   gap: 8px;
   margin-top: 12px;
+}
+.tb-pr-card-actions .ms-auto {
+  margin-left: auto !important;
 }
 
 /* ---------- Tabs for PR detail ---------- */
@@ -2155,16 +2394,16 @@ html[data-theme="dim"] .tb-rfq-indicator-send_failed {
   max-width: 70ch;
 }
 
-/* ---------- PR Detail: sticky header ---------- */
+/* ---------- PR Detail: page header ----------
+   Previously sticky at top:48px, but the actual navbar height is closer
+   to 52px so a sliver of the agent report bled through above the header
+   when scrolled. The header is short and used once per page; sticky
+   gave no real value, so it now scrolls with the page.
+*/
 .tb-sticky-header {
-  position: sticky;
-  top: 48px;
-  z-index: 10;
-  background: var(--bs-body-bg);
-  padding-top: 16px;
-  padding-bottom: 16px;
+  padding-bottom: 12px;
   border-bottom: 1px solid var(--tb-border);
-  margin-bottom: 24px;
+  margin-bottom: 20px;
 }
 
 /* ---------- Timeline improved (dots + line) ---------- */
@@ -2343,6 +2582,86 @@ html[data-theme="light"] .tb-kpi-bad .tb-stat-value {
   }
   .tb-list-controls .tb-search {
     flex: 1 1 100%;
+  }
+}
+
+/* Vendor list-view row — compact, single-line header + meta + actions. */
+.tb-vendor-row {
+  background: var(--tb-surface);
+  border: 1px solid var(--tb-border);
+  border-radius: var(--tb-radius);
+  padding: 8px 12px;
+  margin-bottom: 6px;
+  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+}
+.tb-vendor-row:hover {
+  border-color: color-mix(in srgb, var(--tb-accent) 40%, var(--tb-border));
+}
+.tb-vendor-row.tb-vendor-inactive { opacity: 0.6; }
+
+.tb-vendor-row-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 2fr) auto;
+  align-items: center;
+  gap: 12px;
+}
+.tb-vendor-row-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.tb-vendor-row-name .text-truncate {
+  flex: 1;
+  min-width: 0;
+}
+.tb-vendor-row-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  flex-wrap: nowrap;
+  overflow: hidden;
+}
+.tb-vendor-row-meta > span {
+  flex-shrink: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tb-vendor-row-meta > span.text-truncate {
+  flex-shrink: 1;
+  min-width: 0;
+}
+.tb-vendor-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.tb-vendor-row-actions .tb-icon-btn {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  font-size: 0.85rem;
+}
+.tb-vendor-row-actions .tb-icon-btn.active {
+  background: color-mix(in srgb, var(--tb-accent) 12%, transparent);
+  color: var(--tb-accent);
+  border-color: color-mix(in srgb, var(--tb-accent) 40%, var(--tb-border));
+}
+.tb-vendor-row-expand {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--tb-border);
+}
+
+@media (max-width: 760px) {
+  .tb-vendor-row-main {
+    grid-template-columns: 1fr auto;
+  }
+  .tb-vendor-row-meta {
+    grid-column: 1 / -1;
+    flex-wrap: wrap;
   }
 }
 

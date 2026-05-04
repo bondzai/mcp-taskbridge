@@ -97,10 +97,10 @@ web: ## Start the web server in foreground on $(PORT_WEB)
 	$(NPM) run start:web
 
 .PHONY: dev
-dev: ## Start the web server with .env.local loaded (use this for local smoke tests)
+dev: ## Start the web server with .env.local + hot-reload (node --watch)
 	@test -f .env.local || { echo "✗ .env.local not found. Create it with OPENAI_API_KEY=... PROCUREMENT_ENABLED=true"; exit 1; }
-	@echo "Loading .env.local → starting web on :$(PORT_WEB)"
-	@set -a; . ./.env.local; set +a; $(NPM) run start:web
+	@echo "Loading .env.local → starting web on :$(PORT_WEB) with hot-reload"
+	@set -a; . ./.env.local; set +a; $(NODE) --watch --watch-path=./src --watch-path=./bin --watch-path=./package.json bin/web.js
 
 .PHONY: mcp
 mcp: ## Start the stdio MCP server (normally launched by Claude, not manually)
